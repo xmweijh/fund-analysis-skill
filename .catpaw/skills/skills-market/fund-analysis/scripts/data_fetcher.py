@@ -12,11 +12,23 @@ import time
 import json
 from datetime import datetime, timedelta
 
-# 添加pysnowball路径
-sys.path.insert(0, '/Users/weijiahao03/play/pysnowball-master')
+# 尝试导入 pysnowball（支持 pip install 和本地源码两种方式）
+# 如果从源码运行，可在项目根目录创建 .env 文件并设置：
+#   PYSNOWBALL_PATH=/path/to/pysnowball-master
+_pysnowball_extra = os.environ.get("PYSNOWBALL_PATH", "")
+if _pysnowball_extra and _pysnowball_extra not in sys.path:
+    sys.path.insert(0, _pysnowball_extra)
 
-import pysnowball
-from pysnowball import fund as snowball_fund
+try:
+    import pysnowball
+    from pysnowball import fund as snowball_fund
+except ImportError as _e:
+    raise ImportError(
+        "未找到 pysnowball 库。请通过以下任一方式安装：\n"
+        "  1. pip install pysnowball\n"
+        "  2. 克隆源码后设置环境变量：export PYSNOWBALL_PATH=/path/to/pysnowball-master\n"
+        f"原始错误：{_e}"
+    ) from _e
 
 from .models import (
     FundBasicInfo, FundRealtimeQuote, FundNavHistory,
