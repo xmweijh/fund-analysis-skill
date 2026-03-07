@@ -35,18 +35,28 @@ def install_dependencies():
 
 
 def check_pysnowball_path():
-    """检查pysnowball路径"""
-    print("\n检查pysnowball路径...")
-    pysnowball_path = "/Users/weijiahao03/play/pysnowball-master"
+    """检查 pysnowball 是否可用（pip 安装优先，也支持源码方式）"""
+    print("\n检查 pysnowball 可用性...")
 
-    if os.path.exists(pysnowball_path):
-        print(f"✓ pysnowball路径存在: {pysnowball_path}")
+    # 优先检查是否已通过 pip 安装
+    try:
+        import pysnowball  # noqa: F401
+        print("✓ pysnowball 已通过 pip 安装")
         return True
-    else:
-        print(f"⚠️ pysnowball路径不存在: {pysnowball_path}")
-        print("请确保pysnowball已下载到指定位置")
-        print("或在data_fetcher.py中修改pysnowball路径")
-        return False
+    except ImportError:
+        pass
+
+    # 次选：通过环境变量 PYSNOWBALL_PATH 指向源码目录
+    pysnowball_path = os.environ.get("PYSNOWBALL_PATH", "")
+    if pysnowball_path and os.path.exists(pysnowball_path):
+        print(f"✓ 找到 pysnowball 源码目录（PYSNOWBALL_PATH）: {pysnowball_path}")
+        return True
+
+    print("⚠️  未找到 pysnowball，基金经理详情功能将不可用")
+    print("   安装方式（任选其一）：")
+    print("   1. pip install pysnowball")
+    print("   2. 克隆源码后设置环境变量：export PYSNOWBALL_PATH=/path/to/pysnowball-master")
+    return False
 
 
 def create_directories():
