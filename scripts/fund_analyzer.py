@@ -483,11 +483,7 @@ def main():
         elif cmd == "portfolio-analyze":
             report = analyzer.portfolio_analyze_all()
             print(report)
-            # 保存
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fname = f"portfolio_analysis_{ts}.md"
-            path = analyzer.report_generator.save_report(report, fname)
-            print(f"\n报告已保存到: {path}")
+            # 注意：portfolio_analyze_all() 内部已自动保存报告，无需重复保存
 
         elif cmd == "add":
             if len(sys.argv) < 3:
