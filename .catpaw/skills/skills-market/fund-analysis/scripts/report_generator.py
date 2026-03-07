@@ -433,14 +433,23 @@ class ReportGenerator:
         lines.append("---\n")
         lines.append("## ⚠️ 免责声明\n")
         lines.append("""
-本报告仅供参考,不构成投资建议。投资有风险,入市需谨慎。
+本报告仅供参考，不构成任何投资建议。投资有风险，入市需谨慎。
 
 - 基金过往业绩不代表未来表现
-- 本报告基于公开数据分析,可能存在滞后性
-- 请根据自身风险承受能力进行投资决策
-- 建议咨询专业的投资顾问
+- 本报告基于公开数据分析，可能存在数据滞后或偏差
+- 请根据自身风险承受能力独立做出投资决策
+- 建议咨询具备资质的专业投资顾问
 
-**数据来源**: 蛋卷基金API
+### 数据来源说明
+
+| 数据类型 | 来源 |
+|---------|------|
+| 基金基本信息、净值历史、业绩排名 | 蛋卷基金（蛋卷）API |
+| 基金公告、舆情信息 | 东方财富网 Choice 数据 |
+| 重仓股实时行情 | 东方财富行情接口 |
+| 基金经理详情（部分） | 雪球（snowball）API |
+
+> 以上数据均来自公开渠道，本工具不对数据准确性、完整性及时效性作出保证。
 """)
         lines.append("")
         return "\n".join(lines)
@@ -462,8 +471,10 @@ class ReportGenerator:
         if not filename.endswith('.md'):
             filename += '.md'
 
-        # 保存到固定的 reports/ 目录
-        reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
+        # 保存到 reports/YYYYMMDD/ 子目录，方便按日期管理
+        from datetime import datetime
+        date_str = datetime.now().strftime("%Y%m%d")
+        reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports", date_str)
         os.makedirs(reports_dir, exist_ok=True)
         file_path = os.path.join(reports_dir, filename)
 

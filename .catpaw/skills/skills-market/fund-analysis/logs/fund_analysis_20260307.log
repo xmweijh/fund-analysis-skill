@@ -1064,3 +1064,108 @@ fund_count
 2026-03-07 13:10:24 - fund_analysis - INFO - 获取到 0 条股票行情（push2his）
 2026-03-07 13:10:24 - fund_analysis - INFO - 基金 160323 分析完成
 2026-03-07 13:10:24 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/portfolio_analysis_20260307_131024.md
+2026-03-07 13:46:16 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 13:46:16 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 13:46:16 - fund_analysis - INFO - 开始分析基金: 007751
+2026-03-07 13:46:16 - fund_analysis - INFO - 获取基金基础信息: 007751
+2026-03-07 13:46:16 - fund_analysis - INFO - 获取实时行情: 007751
+2026-03-07 13:46:16 - fund_analysis - INFO - 获取净值历史: 007751, 天数: 365
+2026-03-07 13:46:16 - fund_analysis - INFO - 获取持仓数据: 007751
+2026-03-07 13:46:16 - fund_analysis - INFO - 获取基金经理信息: 007751
+2026-03-07 13:46:16 - fund_analysis - INFO - 获取业绩数据: 007751
+2026-03-07 13:46:17 - fund_analysis - INFO - 获取quote成功
+2026-03-07 13:46:17 - fund_analysis - INFO - 获取holding成功
+2026-03-07 13:46:17 - fund_analysis - INFO - 获取manager成功
+2026-03-07 13:46:17 - fund_analysis - INFO - 获取basic_info成功
+2026-03-07 13:46:17 - fund_analysis - INFO - 获取performance成功
+2026-03-07 13:46:22 - fund_analysis - INFO - 获取nav_history成功
+2026-03-07 13:46:22 - fund_analysis - INFO - technical分析完成
+2026-03-07 13:46:22 - fund_analysis - INFO - 获取基金公告: 007751
+2026-03-07 13:46:22 - fund_analysis - INFO - manager分析完成
+2026-03-07 13:46:22 - fund_analysis - INFO - holding分析完成
+2026-03-07 13:46:22 - fund_analysis - INFO - performance分析完成
+2026-03-07 13:46:23 - fund_analysis - INFO - 获取到 15 条公告
+2026-03-07 13:46:23 - fund_analysis - INFO - sentiment分析完成
+2026-03-07 13:46:23 - fund_analysis - INFO - 投资建议生成完成
+2026-03-07 13:46:24 - fund_analysis - INFO - 获取到 0 条股票行情（push2his）
+2026-03-07 13:46:24 - fund_analysis - INFO - 基金 007751 分析完成
+2026-03-07 13:46:24 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/fund_analysis_007751_20260307_134624.md
+2026-03-07 13:53:24 - fund_analysis - INFO - 获取业绩数据: 007751
+2026-03-07 13:53:53 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 13:53:53 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 13:53:53 - fund_analysis - INFO - 开始分析基金: 007751
+2026-03-07 13:53:53 - fund_analysis - INFO - 获取基金基础信息: 007751
+2026-03-07 13:53:53 - fund_analysis - INFO - 获取实时行情: 007751
+2026-03-07 13:53:53 - fund_analysis - INFO - 获取净值历史: 007751, 天数: 365
+2026-03-07 13:53:53 - fund_analysis - INFO - 获取持仓数据: 007751
+2026-03-07 13:53:53 - fund_analysis - INFO - 获取基金经理信息: 007751
+2026-03-07 13:53:53 - fund_analysis - INFO - 获取业绩数据: 007751
+2026-03-07 13:53:54 - fund_analysis - INFO - 获取manager成功
+2026-03-07 13:53:54 - fund_analysis - INFO - 获取quote成功
+2026-03-07 13:53:54 - fund_analysis - INFO - 获取basic_info成功
+2026-03-07 13:53:54 - fund_analysis - INFO - 获取holding成功
+2026-03-07 13:53:54 - fund_analysis - INFO - 获取performance成功
+2026-03-07 13:53:59 - fund_analysis - INFO - 获取nav_history成功
+2026-03-07 13:53:59 - fund_analysis - INFO - technical分析完成
+2026-03-07 13:53:59 - fund_analysis - INFO - 获取基金公告: 007751
+2026-03-07 13:53:59 - fund_analysis - INFO - holding分析完成
+2026-03-07 13:53:59 - fund_analysis - INFO - manager分析完成
+2026-03-07 13:53:59 - fund_analysis - INFO - performance分析完成
+2026-03-07 13:53:59 - fund_analysis - INFO - 获取到 15 条公告
+2026-03-07 13:53:59 - fund_analysis - INFO - sentiment分析完成
+2026-03-07 13:53:59 - fund_analysis - INFO - 投资建议生成完成
+2026-03-07 13:54:00 - fund_analysis - INFO - 获取到 0 条股票行情（push2his）
+2026-03-07 13:54:00 - fund_analysis - INFO - 基金 007751 分析完成
+2026-03-07 13:54:00 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/fund_analysis_007751_20260307_135400.md
+2026-03-07 13:55:28 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 13:55:28 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 13:55:28 - fund_analysis - INFO - 开始分析基金: 007751
+2026-03-07 13:55:28 - fund_analysis - INFO - 获取基金基础信息: 007751
+2026-03-07 13:55:28 - fund_analysis - INFO - 获取实时行情: 007751
+2026-03-07 13:55:28 - fund_analysis - INFO - 获取净值历史: 007751, 天数: 365
+2026-03-07 13:55:28 - fund_analysis - INFO - 获取持仓数据: 007751
+2026-03-07 13:55:28 - fund_analysis - INFO - 获取基金经理信息: 007751
+2026-03-07 13:55:28 - fund_analysis - INFO - 获取业绩数据: 007751
+2026-03-07 13:55:29 - fund_analysis - INFO - 获取manager成功
+2026-03-07 13:55:29 - fund_analysis - INFO - 获取holding成功
+2026-03-07 13:55:29 - fund_analysis - INFO - 获取basic_info成功
+2026-03-07 13:55:29 - fund_analysis - INFO - 获取quote成功
+2026-03-07 13:55:29 - fund_analysis - INFO - 获取performance成功
+2026-03-07 13:55:34 - fund_analysis - INFO - 获取nav_history成功
+2026-03-07 13:55:34 - fund_analysis - INFO - technical分析完成
+2026-03-07 13:55:34 - fund_analysis - INFO - 获取基金公告: 007751
+2026-03-07 13:55:34 - fund_analysis - INFO - holding分析完成
+2026-03-07 13:55:34 - fund_analysis - INFO - manager分析完成
+2026-03-07 13:55:34 - fund_analysis - INFO - performance分析完成
+2026-03-07 13:55:35 - fund_analysis - INFO - 获取到 15 条公告
+2026-03-07 13:55:35 - fund_analysis - INFO - sentiment分析完成
+2026-03-07 13:55:35 - fund_analysis - INFO - 投资建议生成完成
+2026-03-07 13:55:35 - fund_analysis - INFO - 获取到 0 条股票行情（push2his）
+2026-03-07 13:55:35 - fund_analysis - INFO - 基金 007751 分析完成
+2026-03-07 13:55:35 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/fund_analysis_007751_20260307_135535.md
+2026-03-07 13:59:44 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 13:59:44 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 13:59:44 - fund_analysis - INFO - 开始分析基金: 007751
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取基金基础信息: 007751
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取实时行情: 007751
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取净值历史: 007751, 天数: 365
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取持仓数据: 007751
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取基金经理信息: 007751
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取业绩数据: 007751
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取quote成功
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取manager成功
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取holding成功
+2026-03-07 13:59:44 - fund_analysis - INFO - 获取basic_info成功
+2026-03-07 13:59:45 - fund_analysis - INFO - 获取performance成功
+2026-03-07 13:59:49 - fund_analysis - INFO - 获取nav_history成功
+2026-03-07 13:59:49 - fund_analysis - INFO - holding分析完成
+2026-03-07 13:59:49 - fund_analysis - INFO - 获取基金公告: 007751
+2026-03-07 13:59:49 - fund_analysis - INFO - technical分析完成
+2026-03-07 13:59:49 - fund_analysis - INFO - manager分析完成
+2026-03-07 13:59:49 - fund_analysis - INFO - performance分析完成
+2026-03-07 13:59:49 - fund_analysis - INFO - 获取到 15 条公告
+2026-03-07 13:59:49 - fund_analysis - INFO - sentiment分析完成
+2026-03-07 13:59:49 - fund_analysis - INFO - 投资建议生成完成
+2026-03-07 13:59:49 - fund_analysis - INFO - 获取到 0 条股票行情（push2his）
+2026-03-07 13:59:49 - fund_analysis - INFO - 基金 007751 分析完成
+2026-03-07 13:59:49 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/20260307/fund_analysis_007751_20260307_135949.md
