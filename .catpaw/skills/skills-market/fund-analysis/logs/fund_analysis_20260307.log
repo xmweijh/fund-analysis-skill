@@ -1199,3 +1199,52 @@ fund_count
 2026-03-07 15:27:57 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/20260307/fund_analysis_portfolio-list_20260307_152757.md
 2026-03-07 15:28:45 - fund_analysis - INFO - 已加载 9 条持仓记录
 2026-03-07 15:28:45 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 15:30:19 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 15:30:19 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 15:30:19 - fund_analysis - INFO - 开始分析基金: 007751
+2026-03-07 15:30:19 - fund_analysis - WARNING - 获取quote失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:30:19 - fund_analysis - WARNING - 获取performance失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:30:19 - fund_analysis - WARNING - 获取holding失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:30:19 - fund_analysis - WARNING - 获取basic_info失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:30:19 - fund_analysis - WARNING - 获取nav_history失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:30:19 - fund_analysis - WARNING - 获取manager失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:30:19 - fund_analysis - INFO - 基金 007751 分析完成
+2026-03-07 15:30:19 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/20260307/fund_analysis_007751_20260307_153019.md
+2026-03-07 15:31:01 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 15:31:01 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 15:31:01 - fund_analysis - INFO - 开始分析基金: 007751
+2026-03-07 15:31:01 - fund_analysis - INFO - 获取基金基础信息: 007751
+2026-03-07 15:31:01 - fund_analysis - INFO - 获取实时行情: 007751
+2026-03-07 15:31:01 - fund_analysis - INFO - 获取净值历史: 007751, 天数: 365
+2026-03-07 15:31:01 - fund_analysis - INFO - 获取持仓数据: 007751
+2026-03-07 15:31:01 - fund_analysis - INFO - 获取基金经理信息: 007751
+2026-03-07 15:31:01 - fund_analysis - INFO - 获取业绩数据: 007751
+2026-03-07 15:31:02 - fund_analysis - INFO - 获取basic_info成功
+2026-03-07 15:31:02 - fund_analysis - INFO - 获取manager成功
+2026-03-07 15:31:02 - fund_analysis - INFO - 获取quote成功
+2026-03-07 15:31:02 - fund_analysis - INFO - 获取holding成功
+2026-03-07 15:31:03 - fund_analysis - INFO - 获取performance成功
+2026-03-07 15:31:07 - fund_analysis - INFO - 获取nav_history成功
+2026-03-07 15:31:07 - fund_analysis - INFO - manager分析完成
+2026-03-07 15:31:07 - fund_analysis - INFO - 获取基金公告: 007751
+2026-03-07 15:31:07 - fund_analysis - INFO - technical分析完成
+2026-03-07 15:31:07 - fund_analysis - INFO - holding分析完成
+2026-03-07 15:31:07 - fund_analysis - INFO - performance分析完成
+2026-03-07 15:31:07 - fund_analysis - INFO - 获取到 15 条公告
+2026-03-07 15:31:07 - fund_analysis - INFO - sentiment分析完成
+2026-03-07 15:31:07 - fund_analysis - INFO - 投资建议生成完成
+2026-03-07 15:31:07 - fund_analysis - INFO - 获取到 0 条股票行情（push2his）
+2026-03-07 15:31:07 - fund_analysis - INFO - 基金 007751 分析完成
+2026-03-07 15:31:07 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/20260307/fund_analysis_007751_20260307_153107.md
