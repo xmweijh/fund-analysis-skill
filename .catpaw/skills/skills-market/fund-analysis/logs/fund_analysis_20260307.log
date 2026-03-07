@@ -1169,3 +1169,33 @@ fund_count
 2026-03-07 13:59:49 - fund_analysis - INFO - 获取到 0 条股票行情（push2his）
 2026-03-07 13:59:49 - fund_analysis - INFO - 基金 007751 分析完成
 2026-03-07 13:59:49 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/20260307/fund_analysis_007751_20260307_135949.md
+2026-03-07 15:27:46 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 15:27:46 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 15:27:46 - fund_analysis - INFO - 开始分析基金: 017043
+2026-03-07 15:27:46 - fund_analysis - WARNING - 获取nav_history失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:27:46 - fund_analysis - WARNING - 获取manager失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:27:46 - fund_analysis - WARNING - 获取performance失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:27:46 - fund_analysis - WARNING - 获取quote失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:27:46 - fund_analysis - WARNING - 获取holding失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:27:46 - fund_analysis - WARNING - 获取basic_info失败: 未找到 pysnowball 库，请安装后重试：
+  pip install pysnowball
+或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master
+2026-03-07 15:27:46 - fund_analysis - INFO - 基金 017043 分析完成
+2026-03-07 15:27:46 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/20260307/fund_analysis_017043_20260307_152746.md
+2026-03-07 15:27:57 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 15:27:57 - fund_analysis - INFO - FundAnalyzer初始化完成
+2026-03-07 15:27:57 - fund_analysis - INFO - 开始分析基金: portfolio-list
+2026-03-07 15:27:57 - fund_analysis - ERROR - 无效的基金代码: portfolio-list,基金代码必须是6位数字
+2026-03-07 15:27:57 - fund_analysis - INFO - 报告已保存到: /Users/weijiahao03/AI/AI_workshop/.catpaw/skills/skills-market/fund-analysis/scripts/../reports/20260307/fund_analysis_portfolio-list_20260307_152757.md
+2026-03-07 15:28:45 - fund_analysis - INFO - 已加载 9 条持仓记录
+2026-03-07 15:28:45 - fund_analysis - INFO - FundAnalyzer初始化完成
