@@ -26,6 +26,13 @@
 pip install -r requirements.txt
 ```
 
+> **关于 pysnowball**：本项目通过 [pysnowball](https://github.com/uname-yang/pysnowball)（Apache-2.0）接入蛋卷基金 API，用于获取基金净值、持仓、业绩、经理等核心数据，是**必选依赖**。执行上述安装命令会自动安装，无需单独处理。
+>
+> 若自动安装失败（网络问题等），可手动安装：
+> ```bash
+> pip install pysnowball
+> ```
+
 ## 使用方法
 
 ### 单基金分析
@@ -90,9 +97,10 @@ fund-analysis/
 ├── requirements.txt            # Python 依赖
 ├── data/
 │   └── portfolio.json          # 用户持仓数据（持久化）
-├── reports/                    # 生成的分析报告
-│   ├── fund_analysis_{code}_{ts}.md
-│   └── portfolio_analysis_{ts}.md
+├── reports/                    # 生成的分析报告（按日期分目录）
+│   └── 20260307/
+│       ├── fund_analysis_{code}_{ts}.md
+│       └── portfolio_analysis_{ts}.md
 ├── scripts/
 │   ├── fund_analyzer.py        # 主控制器（入口）
 │   ├── data_fetcher.py         # 数据获取（蛋卷 + 东财）

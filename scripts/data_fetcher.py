@@ -13,22 +13,31 @@ import json
 from datetime import datetime, timedelta
 
 # 尝试导入 pysnowball（支持 pip install 和本地源码两种方式）
-# 如果从源码运行，可在项目根目录创建 .env 文件并设置：
-#   PYSNOWBALL_PATH=/path/to/pysnowball-master
+# 如果从源码运行，可设置环境变量：
+#   export PYSNOWBALL_PATH=/path/to/pysnowball-master
 _pysnowball_extra = os.environ.get("PYSNOWBALL_PATH", "")
 if _pysnowball_extra and _pysnowball_extra not in sys.path:
     sys.path.insert(0, _pysnowball_extra)
 
+_PYSNOWBALL_INSTALL_HINT = (
+    "未找到 pysnowball 库，请安装后重试：\n"
+    "  pip install pysnowball\n"
+    "或克隆源码后设置：export PYSNOWBALL_PATH=/path/to/pysnowball-master"
+)
+
 try:
-    import pysnowball
+    import pysnowball  # noqa: F401
     from pysnowball import fund as snowball_fund
-except ImportError as _e:
-    raise ImportError(
-        "未找到 pysnowball 库。请通过以下任一方式安装：\n"
-        "  1. pip install pysnowball\n"
-        "  2. 克隆源码后设置环境变量：export PYSNOWBALL_PATH=/path/to/pysnowball-master\n"
-        f"原始错误：{_e}"
-    ) from _e
+    _pysnowball_available = True
+except ImportError:
+    snowball_fund = None  # type: ignore
+    _pysnowball_available = False
+
+
+def _require_pysnowball():
+    """在实际调用 pysnowball API 前检查是否可用，不可用则抛出友好提示。"""
+    if not _pysnowball_available:
+        raise ImportError(_PYSNOWBALL_INSTALL_HINT)
 
 from .models import (
     FundBasicInfo, FundRealtimeQuote, FundNavHistory,
@@ -106,6 +115,7 @@ class DanjuanDataFetcher(DataFetcher):
 
     def fetch_basic_info(self, fund_code: str) -> FundBasicInfo:
         """获取基金基础信息"""
+        _require_pysnowball()
         cache_key = f"basic_info_{fund_code}"
         cached = self._get_cache(cache_key)
         if cached:
@@ -142,6 +152,7 @@ class DanjuanDataFetcher(DataFetcher):
 
     def fetch_realtime_quote(self, fund_code: str) -> FundRealtimeQuote:
         """获取实时行情"""
+        _require_pysnowball()
         cache_key = f"realtime_{fund_code}"
         if self._is_cache_valid(cache_key, self._realtime_cache_expiry):
             return self._cache[cache_key]
@@ -179,6 +190,7 @@ class DanjuanDataFetcher(DataFetcher):
 
     def fetch_nav_history(self, fund_code: str, days: int = 365) -> FundNavHistory:
         """获取净值历史"""
+        _require_pysnowball()
         cache_key = f"nav_history_{fund_code}_{days}"
         cached = self._get_cache(cache_key)
         if cached:
@@ -237,6 +249,7 @@ class DanjuanDataFetcher(DataFetcher):
 
     def fetch_holdings(self, fund_code: str) -> HoldingAnalysis:
         """获取持仓分析"""
+        _require_pysnowball()
         cache_key = f"holdings_{fund_code}"
         cached = self._get_cache(cache_key)
         if cached:
@@ -307,6 +320,7 @@ class DanjuanDataFetcher(DataFetcher):
 
     def fetch_manager_info(self, fund_code: str) -> ManagerInfo:
         """获取基金经理信息"""
+        _require_pysnowball()
         cache_key = f"manager_{fund_code}"
         cached = self._get_cache(cache_key)
         if cached:
@@ -371,6 +385,7 @@ class DanjuanDataFetcher(DataFetcher):
 
     def fetch_performance(self, fund_code: str) -> PerformanceData:
         """获取业绩数据（同时调用 fund_info + fund_achievement）"""
+        _require_pysnowball()
         cache_key = f"performance_{fund_code}"
         cached = self._get_cache(cache_key)
         if cached:
