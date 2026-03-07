@@ -460,6 +460,7 @@ class DanjuanDataFetcher(DataFetcher):
                 return_ytd  = _fd_float('nav_grlty')   # 今年以来
                 return_1y   = _fd_float('nav_grl1y')
                 return_3y   = _fd_float('nav_grl3y')
+                return_5y   = _fd_float('nav_grl5y')   # 近5年
                 # 近1年超额收益 = 基金近1年 - 基准近1年
                 bench_1y = _fd_float('srank_l1y')      # srank是排名字符串，需另取
                 # 超额收益从 ach_list 取
