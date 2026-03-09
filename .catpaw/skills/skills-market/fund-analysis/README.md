@@ -1,6 +1,6 @@
 # 基金分析技能 (Fund Analysis)
 
-智能基金分析系统，支持单基金深度分析、持仓管理（CRUD）和批量持仓组合分析，生成包含操作建议卡片、重仓股实时行情、真实舆情的专业 Markdown 报告。
+智能基金分析系统，支持单基金深度分析、持仓管理（CRUD）、批量持仓组合分析和**智能基金推荐**。生成包含操作建议卡片、重仓股实时行情、真实舆情的专业 Markdown 报告。
 
 ## 功能特性
 
@@ -10,7 +10,8 @@
 - 🗞️ **真实舆情接入**：东方财富基金公告接口，自动过滤季报/年报/运营例行公告，只展示实质性利空/利好信号
 - 📂 **持仓管理**：支持增删改查，跨会话持久化存储（`data/portfolio.json`）
 - 📦 **批量持仓分析**：一键分析所有持仓基金，生成组合汇总报告
-- 💾 **报告自动保存**：所有报告统一存入 `reports/` 目录
+- 🎯 **智能基金推荐** ✨ (v1.2.0+)：根据用户持仓风格自动推荐相似风格的优质基金，支持按风险等级/投资期限筛选
+- 💾 **报告自动保存**：所有报告统一存入 `reports/YYYYMMDD/` 按日期分目录保存
 
 ## 数据源
 
@@ -70,9 +71,43 @@ analyzer.portfolio_remove("008975")
 ### 批量持仓分析
 
 ```python
-# 一键分析所有持仓，报告保存到 reports/portfolio_analysis_{ts}.md
+# 一键分析所有持仓，报告保存到 reports/YYYYMMDD/portfolio_analysis_{ts}.md
 report = analyzer.portfolio_analyze_all()
 ```
+
+### 智能基金推荐 ✨ (v1.2.0+)
+
+```python
+from scripts.fund_recommender import FundRecommender
+
+recommender = FundRecommender()
+
+# 推荐基金（根据用户本地持仓风格）
+# 不指定基金列表时，自动读取 data/portfolio.json 并基于风格推荐
+
+# 推荐中风险、长期投资的基金，Top 10
+report = recommender.recommend(
+    risk_level="中",           # 风险等级：低/中/高，None表示不筛选
+    investment_period="long",  # 投资期限：short/medium/long
+    top_n=10                   # 返回数量
+)
+print(report)
+
+# 保存报告
+recommender.save_recommendation_report(report, risk_level="中")
+```
+
+或直接命令行运行：
+
+```bash
+python scripts/fund_analyzer.py recommend --risk 中 --period long --top 10
+```
+
+**推荐功能工作原理：**
+1. 📊 **风格分析**：读取用户持仓基金，自动分析为 股票/混合/债券/指数 四大类
+2. 🎯 **权重分配**：根据持仓风格分布，按比例推荐各类基金
+3. 🚫 **智能排除**：自动剔除用户已持仓的基金
+4. ⭐ **多维评分**：推荐的基金包含技术面/基本面/舆情三维评分
 
 ## 报告结构
 
@@ -102,18 +137,21 @@ fund-analysis/
 │       ├── fund_analysis_{code}_{ts}.md
 │       └── portfolio_analysis_{ts}.md
 ├── scripts/
-│   ├── fund_analyzer.py        # 主控制器（入口）
-│   ├── data_fetcher.py         # 数据获取（蛋卷 + 东财）
-│   ├── technical_analysis.py   # 技术面分析
-│   ├── holding_analysis.py     # 持仓分析
-│   ├── manager_analysis.py     # 基金经理分析
-│   ├── performance_analysis.py # 业绩分析
-│   ├── sentiment_analysis.py   # 舆情分析（真实公告接入）
-│   ├── investment_advisor.py   # 投资建议生成
-│   ├── report_generator.py     # 报告渲染
-│   ├── portfolio_manager.py    # 持仓 CRUD 管理
-│   ├── models.py               # Pydantic 数据模型
-│   └── logger.py               # 日志模块
+│   ├── fund_analyzer.py             # 主控制器（入口）
+│   ├── fund_recommender.py          # 基金推荐器 ✨ (v1.2.0+)
+│   ├── recommendation_engine.py     # 推荐评分和排序引擎
+│   ├── recommendation_advisor.py    # 推荐卡片和报告生成
+│   ├── data_fetcher.py              # 数据获取（蛋卷 + 东财）
+│   ├── technical_analysis.py        # 技术面分析
+│   ├── holding_analysis.py          # 持仓分析
+│   ├── manager_analysis.py          # 基金经理分析
+│   ├── performance_analysis.py      # 业绩分析
+│   ├── sentiment_analysis.py        # 舆情分析（真实公告接入）
+│   ├── investment_advisor.py        # 投资建议生成
+│   ├── report_generator.py          # 报告渲染
+│   ├── portfolio_manager.py         # 持仓 CRUD 管理
+│   ├── models.py                    # Pydantic 数据模型
+│   └── logger.py                    # 日志模块
 ├── references/                 # 参考文档
 └── examples/                   # 示例报告
 ```
