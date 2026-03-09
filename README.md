@@ -11,6 +11,7 @@
 - 📂 **持仓管理**：支持增删改查，跨会话持久化存储（`data/portfolio.json`）
 - 📦 **批量持仓分析**：一键分析所有持仓基金，生成组合汇总报告
 - 💾 **报告自动保存**：所有报告统一存入 `reports/` 目录
+- 🎯 **智能基金推荐**：基于用户持仓分析，推荐补充基金优化投资组合结构
 
 ## 数据源
 
@@ -74,6 +75,36 @@ analyzer.portfolio_remove("008975")
 report = analyzer.portfolio_analyze_all()
 ```
 
+### 智能基金推荐
+
+```python
+from scripts.fund_recommender import FundRecommender
+
+recommender = FundRecommender()
+
+# 推荐中风险、长期投资的基金（基于持仓分析）
+report = recommender.recommend(risk_level='中', investment_period='long', top_n=10)
+
+# 推荐低风险基金
+report = recommender.recommend(risk_level='低', top_n=5)
+
+# 推荐高风险基金
+report = recommender.recommend(risk_level='高', investment_period='short', top_n=5)
+```
+
+或直接命令行运行：
+
+```bash
+# 推荐中风险、长期投资基金（Top 10）
+python scripts/fund_analyzer.py recommend --risk 中 --period long --top 10
+
+# 推荐低风险基金（Top 5）
+python scripts/fund_analyzer.py recommend --risk 低 --top 5
+
+# 推荐高风险、短期投资基金（Top 3）
+python scripts/fund_analyzer.py recommend --risk 高 --period short --top 3
+```
+
 ## 报告结构
 
 每份报告包含以下章节（顺序如下）：
@@ -102,18 +133,21 @@ fund-analysis/
 │       ├── fund_analysis_{code}_{ts}.md
 │       └── portfolio_analysis_{ts}.md
 ├── scripts/
-│   ├── fund_analyzer.py        # 主控制器（入口）
-│   ├── data_fetcher.py         # 数据获取（蛋卷 + 东财）
-│   ├── technical_analysis.py   # 技术面分析
-│   ├── holding_analysis.py     # 持仓分析
-│   ├── manager_analysis.py     # 基金经理分析
-│   ├── performance_analysis.py # 业绩分析
-│   ├── sentiment_analysis.py   # 舆情分析（真实公告接入）
-│   ├── investment_advisor.py   # 投资建议生成
-│   ├── report_generator.py     # 报告渲染
-│   ├── portfolio_manager.py    # 持仓 CRUD 管理
-│   ├── models.py               # Pydantic 数据模型
-│   └── logger.py               # 日志模块
+│   ├── fund_analyzer.py             # 主控制器（入口）
+│   ├── fund_recommender.py          # 基金推荐引擎
+│   ├── recommendation_engine.py     # 推荐评分和排序
+│   ├── recommendation_advisor.py    # 推荐报告生成
+│   ├── data_fetcher.py              # 数据获取（蛋卷 + 东财）
+│   ├── technical_analysis.py        # 技术面分析
+│   ├── holding_analysis.py          # 持仓分析
+│   ├── manager_analysis.py          # 基金经理分析
+│   ├── performance_analysis.py      # 业绩分析
+│   ├── sentiment_analysis.py        # 舆情分析（真实公告接入）
+│   ├── investment_advisor.py        # 投资建议生成
+│   ├── report_generator.py          # 报告渲染
+│   ├── portfolio_manager.py         # 持仓 CRUD 管理
+│   ├── models.py                    # Pydantic 数据模型
+│   └── logger.py                    # 日志模块
 ├── references/                 # 参考文档
 └── examples/                   # 示例报告
 ```
