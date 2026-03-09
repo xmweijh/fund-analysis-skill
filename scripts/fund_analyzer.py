@@ -30,6 +30,8 @@ from scripts.sentiment_analysis import SentimentAnalyzer
 from scripts.investment_advisor import InvestmentAdvisor
 from scripts.report_generator import ReportGenerator
 from scripts.portfolio_manager import PortfolioManager, PortfolioEntry
+from scripts.recommendation_engine import FundScorer, FundRanker, FundRecommendationInput
+from scripts.recommendation_advisor import RecommendationReportGenerator
 from scripts.logger import logger
 
 
@@ -462,16 +464,18 @@ class FundAnalyzer:
 def main():
     """主函数"""
     import sys
+    import argparse
 
     analyzer = FundAnalyzer()
 
     if len(sys.argv) < 2:
         print("使用方法:")
-        print("  python fund_analyzer.py <基金代码>          # 分析单只基金")
-        print("  python fund_analyzer.py portfolio           # 查看持仓列表")
-        print("  python fund_analyzer.py portfolio-analyze   # 批量分析所有持仓")
-        print("  python fund_analyzer.py add <代码> [名称]   # 添加持仓")
-        print("  python fund_analyzer.py remove <代码>       # 删除持仓")
+        print("  python fund_analyzer.py <基金代码>                                # 分析单只基金")
+        print("  python fund_analyzer.py portfolio                                 # 查看持仓列表")
+        print("  python fund_analyzer.py portfolio-analyze                         # 批量分析所有持仓")
+        print("  python fund_analyzer.py add <代码> [名称]                         # 添加持仓")
+        print("  python fund_analyzer.py remove <代码>                             # 删除持仓")
+        print("  python fund_analyzer.py recommend [--risk 低|中|高] [--period short|medium|long] [--top N]  # 推荐基金")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -498,6 +502,30 @@ def main():
                 print("用法: python fund_analyzer.py remove <基金代码>")
                 sys.exit(1)
             print(analyzer.portfolio_remove(sys.argv[2]))
+
+        elif cmd == "recommend":
+            # 推荐基金命令
+            parser = argparse.ArgumentParser(description="推荐基金")
+            parser.add_argument("--risk", choices=["低", "中", "高"], help="风险等级")
+            parser.add_argument("--period", choices=["short", "medium", "long"], help="投资期限")
+            parser.add_argument("--top", type=int, default=10, help="推荐数量")
+            
+            # 跳过前两个参数 (脚本名 和 'recommend')
+            args = parser.parse_args(sys.argv[2:])
+            
+            from scripts.fund_recommender import FundRecommender
+            recommender = FundRecommender()
+            report = recommender.recommend(
+                risk_level=args.risk,
+                investment_period=args.period,
+                top_n=args.top
+            )
+            print(report)
+            
+            # 保存报告
+            file_path = recommender.save_recommendation_report(report, args.risk)
+            if file_path:
+                print(f"\n推荐报告已保存到: {file_path}")
 
         else:
             # 默认：分析单只基金
