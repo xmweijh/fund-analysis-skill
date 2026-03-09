@@ -93,65 +93,93 @@ class FundRecommender:
     
     def _get_popular_funds(self, limit: int = 500) -> List[str]:
         """
-        获取热门基金列表
+        获取推荐基金列表 (排除已持仓基金)
         
         数据来源: 蛋卷基金 API (通过 DanjuanDataFetcher)
-        获取方式: 获取最近交易的基金代码
+        获取方式: 从默认热门基金中排除用户持仓
         
         Args:
             limit: 返回基金数量上限，默认500
             
         Returns:
-            基金代码列表
+            基金代码列表 (不包含已持仓基金)
         """
         try:
-            # 📌 主要数据来源：蛋卷基金 (Danjuan)
-            # 通过 pysnowball 库调用蛋卷 API 获取基金列表
-            
-            # 方法1: 从持仓基金中获取 (如果用户有持仓数据)
-            popular_funds = []
+            # 📌 获取用户持仓代码（需要排除）
+            portfolio_codes = set()
             try:
-                # 尝试从 portfolio.json 中读取用户持仓基金
                 from scripts.portfolio_manager import PortfolioManager
                 pm = PortfolioManager()
-                portfolio_funds = [entry.fund_code for entry in pm.portfolio]
-                if portfolio_funds:
-                    logger.info(f"从持仓列表获取{len(portfolio_funds)}只基金")
-                    popular_funds.extend(portfolio_funds)
+                # 读取 portfolio.json 中的所有基金代码
+                import json
+                import os
+                portfolio_file = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "data",
+                    "portfolio.json"
+                )
+                if os.path.exists(portfolio_file):
+                    with open(portfolio_file, 'r', encoding='utf-8') as f:
+                        portfolio_data = json.load(f)
+                        portfolio_codes = {entry['fund_code'] for entry in portfolio_data}
+                        logger.info(f"已读取 {len(portfolio_codes)} 个持仓基金代码用于排除")
             except Exception as e:
-                logger.debug(f"从持仓列表获取基金失败: {e}")
+                logger.debug(f"读取持仓基金失败: {e}")
             
-            # 方法2: 添加一些代表性的热门基金 (作为默认集合)
-            # 这些基金代表不同风格和规模，用于演示
-            default_funds = [
-                "007751",  # 景顺长城沪港深红利成长低波指数A - 低波指数型
-                "008975",  # 易方达蓝筹精选混合 - 价值风格
-                "003095",  # 中欧医疗健康混合A - 行业主题
-                "017043",  # 南方平衡配置混合 - 平衡配置
-                "110022",  # 易方达消费行业 - 消费主题
-                "420018",  # 兴全趋势投资混合 - 趋势跟踪
-                "470018",  # 汇添富均衡增长混合 - 均衡增长
-                "519674",  # 银河创新成长混合 - 成长风格
-                "163402",  # 兴全趋势投资混合 - 趋势投资
-                "000968",  # 广发行业领先混合 - 行业精选
+            # 📌 默认热门基金集合（广泛覆盖各风格）
+            # 这些基金代表不同风格和规模，用于推荐给用户
+            all_default_funds = [
+                # 低波/指数型
+                "007751",  # 景顺长城沪港深红利成长低波指数A
+                "021707",  # 富国中证红利低波动ETF联接A
+                
+                # 价值风格
+                "008975",  # 易方达蓝筹精选混合
+                "000968",  # 广发行业领先混合
+                
+                # 行业/主题
+                "003095",  # 中欧医疗健康混合A
+                "110022",  # 易方达消费行业
+                
+                # 平衡/均衡
+                "017043",  # 南方平衡配置混合
+                "470018",  # 汇添富均衡增长混合
+                
+                # 成长/趋势
+                "420018",  # 兴全趋势投资混合
+                "519674",  # 银河创新成长混合
+                "163402",  # 兴全趋势投资混合
+                
+                # 债券型
+                "007562",  # 景顺长城景泰纯利债券A
+                "110018",  # 易方达增强回报债券B
+                "010011",  # 景顺长城景颐招利6个月持有期债券A
+                
+                # 其他
+                "000628",  # 大成高鑫股票A
+                "008269",  # 大成睿享混合A
+                "160323",  # 华夏磐泰混合(LOF)A
             ]
             
-            # 补充默认基金，去重
-            for fund_code in default_funds:
-                if fund_code not in popular_funds:
-                    popular_funds.append(fund_code)
+            # ✅ 排除用户已经持仓的基金
+            recommended_funds = [
+                fund_code for fund_code in all_default_funds
+                if fund_code not in portfolio_codes
+            ]
             
             # 截取到 limit 个
-            result = popular_funds[:limit]
-            logger.info(f"获取基金列表: {len(result)}只 (来源: 持仓 + 默认热门基金)")
-            logger.debug(f"基金代码: {result}")
+            result = recommended_funds[:limit]
+            
+            logger.info(f"生成推荐列表: {len(result)}只 (总:{len(all_default_funds)}只, 已排除持仓:{len(portfolio_codes)}只)")
+            logger.debug(f"持仓基金: {sorted(list(portfolio_codes))}")
+            logger.debug(f"推荐基金: {result}")
             
             return result
             
         except Exception as e:
-            logger.error(f"获取热门基金列表失败: {e}")
-            # 降级方案：返回默认基金列表
-            default_funds = ["007751", "008975", "003095", "017043", "110022"]
+            logger.error(f"获取推荐基金列表失败: {e}")
+            # 降级方案：返回一些常见基金（但不一定会排除持仓）
+            default_funds = ["003095", "008975", "110022", "519674", "470018"]
             logger.warning(f"使用降级方案，返回{len(default_funds)}只基金")
             return default_funds
     
