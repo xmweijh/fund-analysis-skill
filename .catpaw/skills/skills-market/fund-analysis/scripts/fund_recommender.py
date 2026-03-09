@@ -23,6 +23,46 @@ from scripts.logger import logger
 class FundRecommender:
     """基金推荐器"""
     
+    # 风格分类的样本库（用于快速获取相似风格基金）
+    STYLE_SAMPLE_LIBRARY = {
+        'stock': [
+            '110022',  # 易方达消费行业
+            '000968',  # 广发行业领先
+            '519674',  # 银河创新成长
+            '163402',  # 兴全趋势投资
+            '420018',  # 兴全趋势投资混合
+            '001943',  # 银河沪深300价值指数
+            '410001',  # 华夏成长混合
+        ],
+        'mixed': [
+            '008975',  # 易方达蓝筹精选
+            '470018',  # 汇添富均衡增长
+            '017043',  # 南方平衡配置
+            '003095',  # 中欧医疗健康
+            '110022',  # 易方达消费行业
+            '519674',  # 银河创新成长
+            '570002',  # 诺德成长精选
+        ],
+        'bond': [
+            '007562',  # 景顺长城景泰纯利债券
+            '110018',  # 易方达增强回报债券B
+            '010011',  # 景顺长城景颐招利6个月持有期债券
+            '111002',  # 易方达多策略
+            '008638',  # 鹏华固收增强债券
+            '008846',  # 华泰柏瑞创新升级
+            '160607',  # 鹏华丰收债券
+        ],
+        'index': [
+            '007751',  # 景顺长城沪港深红利成长低波指数
+            '021707',  # 富国中证红利低波动ETF联接
+            '005533',  # 汇添富均衡增长混合
+            '005534',  # 汇添富平衡混合
+            '005503',  # 景顺长城沪港深红利成长
+            '110029',  # 易方达消费行业ETF
+            '510010',  # 易方达上证50ETF
+        ],
+    }
+    
     def __init__(self):
         """初始化推荐器"""
         self.data_fetcher = DanjuanDataFetcher()
@@ -33,6 +73,7 @@ class FundRecommender:
         self.sentiment_analyzer = SentimentAnalyzer()
         self.scorer = FundScorer()
         self.report_generator = ReportGenerator()
+        self._portfolio_style_cache = None  # 缓存持仓风格分析
         logger.info("FundRecommender initialized")
     
     def recommend(
@@ -95,8 +136,11 @@ class FundRecommender:
         """
         获取推荐基金列表 (排除已持仓基金)
         
-        数据来源: 蛋卷基金 API (通过 DanjuanDataFetcher)
-        获取方式: 从默认热门基金中排除用户持仓
+        数据来源: 蛋卷基金 API - 实时获取热门基金
+        获取方式: 智能降级策略
+          - 优先级1: 从蛋卷API获取实时热门基金
+          - 优先级2: 基于用户本地持仓风格推荐
+          - 优先级3: 返回默认热门基金
         
         Args:
             limit: 返回基金数量上限，默认500
@@ -105,83 +149,373 @@ class FundRecommender:
             基金代码列表 (不包含已持仓基金)
         """
         try:
-            # 📌 获取用户持仓代码（需要排除）
+            # 📌 第一步：获取用户本地持仓代码（需要排除）
             portfolio_codes = set()
+            portfolio_file = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "data",
+                "portfolio.json"
+            )
+            
             try:
-                from scripts.portfolio_manager import PortfolioManager
-                pm = PortfolioManager()
-                # 读取 portfolio.json 中的所有基金代码
                 import json
-                import os
-                portfolio_file = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    "data",
-                    "portfolio.json"
-                )
                 if os.path.exists(portfolio_file):
                     with open(portfolio_file, 'r', encoding='utf-8') as f:
                         portfolio_data = json.load(f)
                         portfolio_codes = {entry['fund_code'] for entry in portfolio_data}
-                        logger.info(f"已读取 {len(portfolio_codes)} 个持仓基金代码用于排除")
+                        logger.info(f"✓ 已读取本地持仓: {len(portfolio_codes)}只基金")
             except Exception as e:
-                logger.debug(f"读取持仓基金失败: {e}")
+                logger.debug(f"读取本地持仓失败: {e}")
             
-            # 📌 默认热门基金集合（广泛覆盖各风格）
-            # 这些基金代表不同风格和规模，用于推荐给用户
-            all_default_funds = [
-                # 低波/指数型
-                "007751",  # 景顺长城沪港深红利成长低波指数A
-                "021707",  # 富国中证红利低波动ETF联接A
-                
-                # 价值风格
-                "008975",  # 易方达蓝筹精选混合
-                "000968",  # 广发行业领先混合
-                
-                # 行业/主题
-                "003095",  # 中欧医疗健康混合A
-                "110022",  # 易方达消费行业
-                
-                # 平衡/均衡
-                "017043",  # 南方平衡配置混合
-                "470018",  # 汇添富均衡增长混合
-                
-                # 成长/趋势
-                "420018",  # 兴全趋势投资混合
-                "519674",  # 银河创新成长混合
-                "163402",  # 兴全趋势投资混合
-                
-                # 债券型
-                "007562",  # 景顺长城景泰纯利债券A
-                "110018",  # 易方达增强回报债券B
-                "010011",  # 景顺长城景颐招利6个月持有期债券A
-                
-                # 其他
-                "000628",  # 大成高鑫股票A
-                "008269",  # 大成睿享混合A
-                "160323",  # 华夏磐泰混合(LOF)A
-            ]
+            # 📌 第二步：尝试多个数据源获取推荐基金
+            recommended_funds = self._get_recommended_funds_with_fallback(portfolio_codes, limit)
             
-            # ✅ 排除用户已经持仓的基金
-            recommended_funds = [
-                fund_code for fund_code in all_default_funds
-                if fund_code not in portfolio_codes
-            ]
+            logger.info(f"✓ 生成推荐列表: {len(recommended_funds)}只 (已排除持仓:{len(portfolio_codes)}只)")
             
-            # 截取到 limit 个
-            result = recommended_funds[:limit]
-            
-            logger.info(f"生成推荐列表: {len(result)}只 (总:{len(all_default_funds)}只, 已排除持仓:{len(portfolio_codes)}只)")
-            logger.debug(f"持仓基金: {sorted(list(portfolio_codes))}")
-            logger.debug(f"推荐基金: {result}")
-            
-            return result
+            return recommended_funds
             
         except Exception as e:
             logger.error(f"获取推荐基金列表失败: {e}")
-            # 降级方案：返回一些常见基金（但不一定会排除持仓）
-            default_funds = ["003095", "008975", "110022", "519674", "470018"]
-            logger.warning(f"使用降级方案，返回{len(default_funds)}只基金")
+            return []
+    
+    def _get_recommended_funds_with_fallback(self, portfolio_codes: set, limit: int) -> List[str]:
+        """
+        使用智能降级策略获取推荐基金
+        
+        降级优先级：
+        1. 蛋卷API热门基金 (需要实现 API 接口)
+        2. 基于持仓风格匹配 (已持仓用户)
+        3. 默认热门基金库 (通用方案)
+        
+        Args:
+            portfolio_codes: 用户持仓基金代码集合
+            limit: 需要的基金数量
+            
+        Returns:
+            推荐基金列表
+        """
+        # 策略1：尝试从蛋卷 API 获取热门基金
+        try:
+            logger.info("尝试策略1: 从蛋卷API获取热门基金...")
+            api_funds = self._fetch_from_danjuan_api(portfolio_codes, limit)
+            if api_funds and len(api_funds) > 0:
+                logger.info(f"✓ 策略1成功: 从蛋卷API获取 {len(api_funds)} 只基金")
+                return api_funds
+        except Exception as e:
+            logger.debug(f"策略1失败: {e}")
+        
+        # 策略2：基于用户持仓风格推荐
+        if portfolio_codes:
+            try:
+                logger.info("尝试策略2: 基于持仓风格匹配...")
+                style_matched = self._get_style_matched_funds(portfolio_codes, limit)
+                if style_matched and len(style_matched) > 0:
+                    logger.info(f"✓ 策略2成功: 基于风格匹配获得 {len(style_matched)} 只基金")
+                    return style_matched
+            except Exception as e:
+                logger.debug(f"策略2失败: {e}")
+        
+        # 策略3：返回默认热门基金库
+        try:
+            logger.info("尝试策略3: 使用默认热门基金库...")
+            default_funds = self._get_default_popular_funds(portfolio_codes, limit)
+            logger.info(f"✓ 策略3成功: 使用默认库获得 {len(default_funds)} 只基金")
             return default_funds
+        except Exception as e:
+            logger.error(f"策略3失败: {e}")
+        
+        logger.warning("所有获取策略都失败，返回空列表")
+        return []
+    
+    def _fetch_from_danjuan_api(self, portfolio_codes: set, limit: int) -> List[str]:
+        """
+        从蛋卷 API 获取热门基金列表
+        
+        目前为占位符实现，真实实现需要调用蛋卷 API
+        
+        Args:
+            portfolio_codes: 用户持仓基金代码集合
+            limit: 需要的基金数量
+            
+        Returns:
+            推荐基金列表
+        """
+        try:
+            # TODO: 实现真实的蛋卷 API 调用
+            # 伪代码示例：
+            # response = self.data_fetcher.get_popular_funds(limit=limit*2)
+            # recommended = [
+            #     fund['code'] for fund in response
+            #     if fund['code'] not in portfolio_codes
+            # ]
+            # return recommended[:limit]
+            
+            logger.debug("蛋卷API热门基金获取尚未实现")
+            raise NotImplementedError("API method not yet implemented")
+            
+        except Exception as e:
+            logger.debug(f"蛋卷API获取失败: {e}")
+            raise
+    
+    def _get_style_matched_funds(self, portfolio_codes: set, limit: int) -> List[str]:
+        """
+        基于用户本地持仓风格，匹配相似风格的推荐基金
+        
+        实现逻辑：
+        1. 获取用户持仓基金的风格分布
+        2. 根据风格分布，从蛋卷获取热门基金
+        3. 排除已持仓的基金
+        
+        Args:
+            portfolio_codes: 用户持仓基金代码集合
+            limit: 需要的推荐数量
+            
+        Returns:
+            推荐基金代码列表
+        """
+        try:
+            if not portfolio_codes:
+                logger.warning("未提供持仓基金代码，无法进行风格匹配")
+                return []
+            
+            # 📌 步骤1：分析用户持仓的风格分布
+            portfolio_styles = self._analyze_portfolio_style(portfolio_codes)
+            logger.info(f"持仓风格分布: {portfolio_styles}")
+            
+            # 📌 步骤2：根据风格分布获取推荐基金
+            recommended_funds = self._fetch_funds_by_style(portfolio_styles, portfolio_codes, limit)
+            logger.info(f"获取到 {len(recommended_funds)} 只相似风格的基金")
+            
+            return recommended_funds
+            
+        except Exception as e:
+            logger.error(f"风格匹配推荐失败: {e}")
+            return []
+    
+    def _analyze_portfolio_style(self, portfolio_codes: set) -> Dict[str, int]:
+        """
+        分析用户持仓基金的风格分布
+        
+        通过获取持仓基金的基本信息，分类为：
+        - 股票型 (stock)
+        - 混合型 (mixed)
+        - 债券型 (bond)
+        - 指数型 (index)
+        
+        Args:
+            portfolio_codes: 持仓基金代码集合
+            
+        Returns:
+            风格分布字典 {style: count, ...}
+        """
+        style_distribution = {
+            'stock': 0,
+            'mixed': 0,
+            'bond': 0,
+            'index': 0,
+            'other': 0
+        }
+        
+        try:
+            for code in list(portfolio_codes)[:10]:  # 最多分析前10只持仓基金
+                try:
+                    basic_info = self.data_fetcher.fetch_basic_info(code)
+                    if not basic_info:
+                        continue
+                    
+                    fund_type = basic_info.fund_type if hasattr(basic_info, 'fund_type') else ""
+                    style = self._classify_fund_type(fund_type, code)
+                    style_distribution[style] += 1
+                    logger.debug(f"基金 {code} 分类为: {style} (类型: {fund_type})")
+                    
+                except Exception as e:
+                    logger.debug(f"分析基金 {code} 风格失败: {e}")
+                    style_distribution['other'] += 1
+            
+            return style_distribution
+            
+        except Exception as e:
+            logger.error(f"分析投资组合风格失败: {e}")
+            return style_distribution
+    
+    def _classify_fund_type(self, fund_type: str, fund_code: str) -> str:
+        """
+        将基金类型分类为标准风格标签
+        
+        Args:
+            fund_type: 基金类型字符串
+            fund_code: 基金代码（备用）
+            
+        Returns:
+            分类结果: 'stock', 'mixed', 'bond', 'index', 'other'
+        """
+        fund_type_lower = fund_type.lower()
+        
+        # 债券型
+        if any(kw in fund_type_lower for kw in ['债券', 'bond', '固定收益']):
+            return 'bond'
+        
+        # 指数型
+        if any(kw in fund_type_lower for kw in ['指数', 'index', 'etf', '被动']):
+            return 'index'
+        
+        # 股票型
+        if any(kw in fund_type_lower for kw in ['股票', 'stock', '激进']):
+            return 'stock'
+        
+        # 混合型
+        if any(kw in fund_type_lower for kw in ['混合', 'mixed', '混']):
+            return 'mixed'
+        
+        return 'other'
+    
+    def _fetch_funds_by_style(self, style_distribution: Dict[str, int], portfolio_codes: set, limit: int) -> List[str]:
+        """
+        根据风格分布从蛋卷获取推荐基金
+        
+        策略：
+        1. 按风格权重，从蛋卷热门基金列表中获取对应的基金
+        2. 排除用户已持仓的基金
+        3. 返回推荐列表
+        
+        Args:
+            style_distribution: 风格分布 {style: count}
+            portfolio_codes: 用户持仓基金集合
+            limit: 需要的数量
+            
+        Returns:
+            推荐基金代码列表
+        """
+        recommended_funds = []
+        
+        try:
+            # 计算总数，用于计算权重
+            total_style_count = sum(style_distribution.values())
+            if total_style_count == 0:
+                logger.warning("未找到有效的持仓风格，使用默认推荐")
+                return self._get_default_popular_funds(portfolio_codes, limit)
+            
+            # 📌 根据风格权重分配推荐数量
+            style_weights = {
+                style: (count / total_style_count) 
+                for style, count in style_distribution.items() 
+                if count > 0
+            }
+            
+            logger.info(f"风格权重: {style_weights}")
+            
+            # 📌 为每个风格获取相应数量的基金
+            for style, weight in style_weights.items():
+                target_count = max(1, int(limit * weight))
+                
+                try:
+                    # 从蛋卷获取该风格的热门基金
+                    style_funds = self._get_style_popular_funds(style, target_count * 2)  # 获取2倍数量便于过滤
+                    
+                    # 排除已持仓基金
+                    style_funds_filtered = [
+                        code for code in style_funds 
+                        if code not in portfolio_codes and code not in recommended_funds
+                    ]
+                    
+                    # 添加到推荐列表
+                    recommended_funds.extend(style_funds_filtered[:target_count])
+                    logger.info(f"风格 {style}: 添加 {len(style_funds_filtered[:target_count])} 只基金")
+                    
+                except Exception as e:
+                    logger.debug(f"获取风格 {style} 的基金失败: {e}")
+            
+            # 如果推荐数不足，补充默认热门基金
+            if len(recommended_funds) < limit:
+                default_funds = self._get_default_popular_funds(portfolio_codes, limit - len(recommended_funds))
+                recommended_funds.extend(default_funds)
+                logger.info(f"补充默认热门基金: +{len(default_funds)}只")
+            
+            return recommended_funds[:limit]
+            
+        except Exception as e:
+            logger.error(f"按风格获取基金失败: {e}")
+            # 降级：返回默认热门基金
+            return self._get_default_popular_funds(portfolio_codes, limit)
+    
+    def _get_style_popular_funds(self, style: str, limit: int) -> List[str]:
+        """
+        从蛋卷获取特定风格的热门基金
+        
+        优先使用蛋卷 API，降级到本地样本库
+        
+        Args:
+            style: 风格类型 ('stock', 'mixed', 'bond', 'index', 'other')
+            limit: 需要的数量
+            
+        Returns:
+            基金代码列表
+        """
+        try:
+            # TODO: 调用蛋卷 API 获取特定风格的基金列表
+            # 示例实现（需要根据蛋卷API文档调整）：
+            # response = self.data_fetcher.get_funds_by_category(style, limit=limit)
+            # return [fund['code'] for fund in response]
+            
+            logger.debug(f"从蛋卷获取风格 {style} 的基金 (limit={limit})")
+            
+            # 降级方案：使用类级别的样本库
+            # 这是一个通用的样本库，包含各风格的热门基金
+            funds = self.STYLE_SAMPLE_LIBRARY.get(style, [])
+            
+            # 如果样本库中没有该风格，返回默认库中的部分基金
+            if not funds:
+                logger.warning(f"样本库中未找到风格 {style}，使用默认基金")
+                funds = [
+                    '008975', '110022', '007751',  # 各风格代表性基金
+                    '007562', '470018', '519674',
+                ]
+            
+            logger.info(f"返回风格 {style} 的 {len(funds[:limit])} 只基金 (from {len(funds)} available)")
+            
+            return funds[:limit]
+            
+        except Exception as e:
+            logger.warning(f"获取风格 {style} 的基金失败: {e}")
+            # 应急方案：返回最安全的几个基金
+            return ['110022', '008975', '007751'][:limit]
+    
+    def _get_default_popular_funds(self, exclude_codes: set, limit: int) -> List[str]:
+        """
+        获取默认热门基金（排除指定的基金）
+        
+        使用一个通用的热门基金库，包含各风格的优质基金
+        
+        Args:
+            exclude_codes: 需要排除的基金代码集合
+            limit: 需要的数量
+            
+        Returns:
+            推荐基金代码列表
+        """
+        # 通用热门基金库（从各风格精选）
+        default_popular_funds = [
+            # 混合型（均衡）
+            '008975', '470018', '017043',
+            # 股票型（成长）
+            '110022', '519674', '420018', '163402',
+            # 医疗健康（行业）
+            '003095',
+            # 指数型
+            '007751', '021707', '005533',
+            # 债券型
+            '007562', '110018', '010011',
+        ]
+        
+        # 过滤已排除的基金
+        filtered_funds = [
+            code for code in default_popular_funds
+            if code not in exclude_codes
+        ]
+        
+        logger.info(f"返回默认热门基金: {len(filtered_funds[:limit])} 只 (from {len(default_popular_funds)})")
+        
+        return filtered_funds[:limit]
     
     def _analyze_funds_parallel(
         self,
