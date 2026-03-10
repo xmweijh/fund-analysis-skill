@@ -23,34 +23,40 @@ class RecommendationCardGenerator:
     ) -> str:
         """
         生成推荐卡片
-        
+
         Args:
             rank: 排名 (1-10)
-            fund_score: 基金评分
-            performance: 业绩数据
-            technical: 技术指标
-            manager: 基金经理信息
-            sentiment: 舆情数据
-            
+            fund_score: 基金评分 (包含原始数据)
+            performance: 业绩数据 (可选,优先使用 fund_score 中的数据)
+            technical: 技术指标 (可选,优先使用 fund_score 中的数据)
+            manager: 基金经理信息 (可选,优先使用 fund_score 中的数据)
+            sentiment: 舆情数据 (可选,优先使用 fund_score 中的数据)
+
         Returns:
             Markdown 格式的推荐卡片
         """
         try:
             lines = []
-            
+
+            # 从 FundScore 对象中获取原始数据,如果传入参数为 None
+            performance = performance or fund_score.performance
+            technical = technical or fund_score.technical
+            manager = manager or fund_score.manager
+            sentiment = sentiment or fund_score.sentiment
+
             # 标题和排名
             stars = "⭐" * int(fund_score.total_score / 20)  # 每20分一颗星
             lines.append(f"### #{rank} {fund_score.fund_name} ({fund_score.fund_code})")
             lines.append(f"**综合评分**: {stars} {fund_score.total_score}/100")
             lines.append("")
-            
+
             # 维度评分
             lines.append("**维度评分**:")
             lines.append(f"- 📈 技术面: {fund_score.technical_score}/100", )
             if technical and technical.trend:
                 lines[-1] += f" ({technical.trend}趋势)"
             lines.append("")
-            
+
             lines.append(f"- 💰 基本面: {fund_score.fundamental_score}/100")
             if performance and performance.return_3y is not None:
                 lines[-1] += f" (3年收益 {performance.return_3y:+.2f}%"
@@ -58,16 +64,16 @@ class RecommendationCardGenerator:
                     lines[-1] += f", 超越同类 {performance.rank_percentile:.0f}%"
                 lines[-1] += ")"
             lines.append("")
-            
+
             lines.append(f"- 📢 舆情: {fund_score.sentiment_score}/100")
             if sentiment:
                 lines[-1] += f" ({sentiment.level})"
             lines.append("")
-            
+
             # 推荐理由
             lines.append(f"**推荐理由**: {fund_score.reason}")
             lines.append("")
-            
+
             # 关键指标
             key_metrics = RecommendationCardGenerator._extract_key_metrics(
                 performance, technical, manager
@@ -77,14 +83,14 @@ class RecommendationCardGenerator:
                 for metric in key_metrics:
                     lines.append(f"- {metric}")
                 lines.append("")
-            
+
             # 风险提示
             if fund_score.risk_level == "高":
                 lines.append("⚠️ **风险提示**: 此基金波动较大，建议风险承受能力强的投资者选择")
-            
+
             lines.append("")
             return "\n".join(lines)
-        
+
         except Exception as e:
             logger.error(f"生成推荐卡片失败: {e}")
             return f"### #{rank} {fund_score.fund_name}\n评分: {fund_score.total_score}/100\n"

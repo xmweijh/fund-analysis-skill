@@ -21,6 +21,11 @@ class FundScore:
     sentiment_score: float  # 舆情评分 0-100
     risk_level: str  # 风险等级: 低/中/高
     reason: str  # 推荐理由
+    # 原始数据,用于生成详细推荐卡片
+    performance: Optional[PerformanceData] = None
+    technical: Optional[TechnicalIndicators] = None
+    manager: Optional[ManagerInfo] = None
+    sentiment: Optional[SentimentData] = None
 
 
 @dataclass
@@ -83,7 +88,11 @@ class FundScorer:
                 fundamental_score=round(fundamental_score, 2),
                 sentiment_score=round(sentiment_score, 2),
                 risk_level=risk_level,
-                reason=reason
+                reason=reason,
+                performance=fund_data.performance,
+                technical=fund_data.technical,
+                manager=fund_data.manager,
+                sentiment=fund_data.sentiment
             )
         except Exception as e:
             logger.error(f"评分失败 {fund_data.fund_code}: {e}")
@@ -96,7 +105,11 @@ class FundScorer:
                 fundamental_score=50.0,
                 sentiment_score=50.0,
                 risk_level="中",
-                reason="数据不完整，评分为默认值"
+                reason="数据不完整，评分为默认值",
+                performance=fund_data.performance,
+                technical=fund_data.technical,
+                manager=fund_data.manager,
+                sentiment=fund_data.sentiment
             )
     
     def _score_technical(self, technical: Optional[TechnicalIndicators]) -> float:
