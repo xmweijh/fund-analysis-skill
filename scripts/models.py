@@ -28,9 +28,25 @@ class FundBasicInfo(BaseModel):
 class FundRealtimeQuote(BaseModel):
     """实时行情"""
     fund_code: str = Field(..., description="基金代码")
-    nav: Optional[float] = Field(None, description="当前净值")
+    nav: Optional[float] = Field(None, description="当前净值/估算净值")
     change_pct: Optional[float] = Field(None, description="日涨跌幅(%)")
     day7_return: Optional[float] = Field(None, description="近7日年化收益率(%)")
+    previous_nav: Optional[float] = Field(None, description="上一交易日单位净值")
+    previous_nav_date: Optional[str] = Field(None, description="上一交易日净值日期")
+    estimated_nav: Optional[float] = Field(None, description="今日估算净值")
+    estimated_change_pct: Optional[float] = Field(None, description="今日估算涨跌幅(%)")
+    estimate_time: Optional[str] = Field(None, description="估值时间")
+    is_estimated: bool = Field(default=False, description="是否为估算净值")
+    source: Optional[str] = Field(None, description="行情数据来源")
+
+
+class MarketIndexQuote(BaseModel):
+    """大盘指数行情"""
+    index_code: str = Field(..., description="指数代码")
+    index_name: str = Field(..., description="指数名称")
+    latest_price: Optional[float] = Field(None, description="最新价")
+    change_pct: Optional[float] = Field(None, description="涨跌幅(%)")
+    change_amount: Optional[float] = Field(None, description="涨跌额")
 
 
 class FundNavHistory(BaseModel):

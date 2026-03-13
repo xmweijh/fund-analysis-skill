@@ -209,6 +209,7 @@ class FundAnalyzer:
                 fund_code=fund_code,
                 basic_info=analysis_result.get('basic_info'),
                 quote=analysis_result.get('quote'),
+                market_indices=analysis_result.get('market_indices') or {},
                 technical=analysis_result.get('technical'),
                 holding=analysis_result.get('holding'),
                 manager=analysis_result.get('manager'),
@@ -267,11 +268,12 @@ class FundAnalyzer:
             holding = basic_data.get('holding')
             manager = basic_data.get('manager')
             performance = basic_data.get('performance')
+            market_indices = basic_data.get('market_indices') or {}
 
             # 并发执行各分析模块
             analysis_tasks = {}
 
-            if nav_history and quote:
+            if nav_history:
                 analysis_tasks['technical'] = (
                     self.technical_analyzer.analyze,
                     (nav_history, quote)
@@ -326,7 +328,13 @@ class FundAnalyzer:
             performance_analysis = result.get('performance')
             sentiment_analysis = result.get('sentiment')
 
-            current_nav = quote.nav if quote else 0
+            current_nav = 0.0
+            if quote and quote.nav is not None:
+                current_nav = quote.nav
+            elif quote and quote.previous_nav is not None:
+                current_nav = quote.previous_nav
+            elif nav_history and nav_history.navs:
+                current_nav = nav_history.navs[-1]
 
             if technical and performance_analysis and sentiment_analysis:
                 # manager 可选；holding 可选
@@ -372,6 +380,7 @@ class FundAnalyzer:
             result['holding'] = holding
             result['manager'] = manager
             result['performance'] = performance
+            result['market_indices'] = market_indices
             result['stock_quotes'] = stock_quotes
 
             return result
@@ -392,7 +401,7 @@ class FundAnalyzer:
         """
         data = {}
 
-        with ThreadPoolExecutor(max_workers=6) as executor:
+        with ThreadPoolExecutor(max_workers=7) as executor:
             # 提交所有数据获取任务
             futures = {
                 executor.submit(self.data_fetcher.fetch_basic_info, fund_code): 'basic_info',
@@ -400,7 +409,8 @@ class FundAnalyzer:
                 executor.submit(self.data_fetcher.fetch_nav_history, fund_code, 365): 'nav_history',
                 executor.submit(self.data_fetcher.fetch_holdings, fund_code): 'holding',
                 executor.submit(self.data_fetcher.fetch_manager_info, fund_code): 'manager',
-                executor.submit(self.data_fetcher.fetch_performance, fund_code): 'performance'
+                executor.submit(self.data_fetcher.fetch_performance, fund_code): 'performance',
+                executor.submit(self.data_fetcher.fetch_market_indices): 'market_indices'
             }
 
             # 收集结果

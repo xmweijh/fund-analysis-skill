@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from .models import (
     FundBasicInfo, FundRealtimeQuote, TechnicalIndicators,
     HoldingAnalysis, ManagerInfo, PerformanceData,
-    SentimentData, InvestmentAdvice
+    SentimentData, InvestmentAdvice, MarketIndexQuote
 )
 from .logger import logger
 
@@ -20,6 +20,7 @@ class ReportGenerator:
         fund_code: str,
         basic_info: Optional[FundBasicInfo],
         quote: Optional[FundRealtimeQuote],
+        market_indices: Optional[Dict[str, MarketIndexQuote]],
         technical: Optional[TechnicalIndicators],
         holding: Optional[HoldingAnalysis],
         manager: Optional[ManagerInfo],
@@ -35,6 +36,7 @@ class ReportGenerator:
             fund_code: 基金代码
             basic_info: 基金基础信息
             quote: 实时行情
+            market_indices: 大盘指数行情
             technical: 技术分析
             holding: 持仓分析
             manager: 基金经理分析
@@ -68,6 +70,10 @@ class ReportGenerator:
             # 实时行情
             if quote:
                 report_lines.append(self._format_realtime_quote(quote))
+
+            # 大盘指数行情
+            if market_indices:
+                report_lines.append(self._format_market_indices(market_indices))
 
             # 技术面分析
             if technical:
@@ -179,13 +185,63 @@ class ReportGenerator:
         return "\n".join(lines)
 
     def _format_realtime_quote(self, quote: FundRealtimeQuote) -> str:
-        """格式化实时行情"""
+        """格式化实时行情（支持盘中估值与收盘净值回退）"""
         lines = []
         lines.append("## 📈 实时行情\n")
-        lines.append(f"- **当前净值**: {quote.nav:.4f}")
-        lines.append(f"- **日涨跌幅**: {quote.change_pct:+.2f}%")
-        if quote.day7_return:
+
+        nav_text = "-"
+        if quote.nav is not None:
+            nav_text = f"{quote.nav:.4f}"
+
+        change_text = "-"
+        if quote.change_pct is not None:
+            change_text = f"{quote.change_pct:+.2f}%"
+
+        lines.append(f"- **当前净值**: {nav_text}")
+        lines.append(f"- **日涨跌幅**: {change_text}")
+
+        if quote.is_estimated:
+            if quote.estimated_nav is not None:
+                lines.append(f"- **今日估算净值**: {quote.estimated_nav:.4f}")
+            if quote.estimated_change_pct is not None:
+                lines.append(f"- **今日估算涨跌**: {quote.estimated_change_pct:+.2f}%")
+            if quote.estimate_time:
+                lines.append(f"- **估值时间**: {quote.estimate_time}")
+
+        if quote.previous_nav is not None:
+            prev_date = quote.previous_nav_date or "上一交易日"
+            lines.append(f"- **{prev_date}单位净值**: {quote.previous_nav:.4f}")
+
+        if quote.day7_return is not None:
             lines.append(f"- **近7日年化**: {quote.day7_return:+.2f}%")
+
+        if quote.source:
+            lines.append(f"- **数据来源**: {quote.source}")
+
+        lines.append("")
+        return "\n".join(lines)
+
+    def _format_market_indices(self, market_indices: Dict[str, MarketIndexQuote]) -> str:
+        """格式化大盘指数行情"""
+        lines = []
+        lines.append("## 🌐 大盘指数行情\n")
+        lines.append("| 指数 | 最新价 | 涨跌幅 | 涨跌额 |")
+        lines.append("|------|--------|--------|--------|")
+
+        preferred_order = ["上证指数", "深证成指", "创业板指", "沪深300", "中证500"]
+        ordered_names = preferred_order + [
+            name for name in market_indices.keys() if name not in preferred_order
+        ]
+
+        for name in ordered_names:
+            item = market_indices.get(name)
+            if not item:
+                continue
+            latest_price = f"{item.latest_price:.2f}" if item.latest_price is not None else "-"
+            change_pct = f"{item.change_pct:+.2f}%" if item.change_pct is not None else "-"
+            change_amount = f"{item.change_amount:+.2f}" if item.change_amount is not None else "-"
+            lines.append(f"| {item.index_name} | {latest_price} | {change_pct} | {change_amount} |")
+
         lines.append("")
         return "\n".join(lines)
 
@@ -444,10 +500,12 @@ class ReportGenerator:
 
 | 数据类型 | 来源 |
 |---------|------|
-| 基金基本信息、净值历史、业绩排名 | 蛋卷基金（蛋卷）API |
+| 实时估值（盘中） | 天天基金实时估值接口（fundgz.1234567.com.cn） |
+| 历史净值 | 蛋卷基金 API（优先）+ 东方财富历史净值接口（回退） |
+| 大盘指数行情 | 东方财富 push2 行情接口 |
 | 基金公告、舆情信息 | 东方财富网 Choice 数据 |
 | 重仓股实时行情 | 东方财富行情接口 |
-| 基金经理详情（部分） | 雪球（snowball）API |
+| 基金基础信息、经理信息、业绩排名 | 蛋卷基金/雪球 API（可用时） |
 
 > 以上数据均来自公开渠道，本工具不对数据准确性、完整性及时效性作出保证。
 """)

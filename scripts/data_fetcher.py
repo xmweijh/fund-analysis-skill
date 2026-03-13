@@ -5,12 +5,14 @@
 
 import sys
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 from abc import ABC, abstractmethod
-from functools import lru_cache
 import time
 import json
-from datetime import datetime, timedelta
+import re
+from datetime import datetime
+
+import requests
 
 # 尝试导入 pysnowball（支持 pip install 和本地源码两种方式）
 # 如果从源码运行，可设置环境变量：
@@ -41,7 +43,8 @@ def _require_pysnowball():
 
 from .models import (
     FundBasicInfo, FundRealtimeQuote, FundNavHistory,
-    HoldingAnalysis, ManagerInfo, PerformanceData, YearlyPerformance
+    HoldingAnalysis, ManagerInfo, PerformanceData, YearlyPerformance,
+    MarketIndexQuote
 )
 from .logger import logger
 
@@ -84,6 +87,11 @@ class DataFetcher(ABC):
         """获取基金公告/新闻列表，返回原始 dict 列表"""
         pass
 
+    @abstractmethod
+    def fetch_market_indices(self) -> Dict[str, MarketIndexQuote]:
+        """获取大盘指数行情"""
+        pass
+
 
 class DanjuanDataFetcher(DataFetcher):
     """蛋卷基金数据获取器"""
@@ -91,8 +99,18 @@ class DanjuanDataFetcher(DataFetcher):
     def __init__(self):
         self._cache = {}
         self._cache_expiry = {}
-        self._realtime_cache_expiry = 300  # 实时数据缓存5分钟
+        self._realtime_cache_expiry = 60   # 实时数据缓存1分钟
+        self._index_cache_expiry = 120     # 指数行情缓存2分钟
         self._history_cache_expiry = 86400  # 历史数据缓存24小时
+        self._index_secids = ["1.000001", "0.399001", "0.399006", "1.000300", "1.000905"]
+        self._default_headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://fundf10.eastmoney.com/",
+        }
 
     def _is_cache_valid(self, key: str, expiry_seconds: int) -> bool:
         """检查缓存是否有效"""
@@ -114,138 +132,287 @@ class DanjuanDataFetcher(DataFetcher):
         self._cache_expiry[key] = time.time() + expiry_seconds
 
     def fetch_basic_info(self, fund_code: str) -> FundBasicInfo:
-        """获取基金基础信息"""
-        _require_pysnowball()
+        """获取基金基础信息（优先蛋卷，失败时降级为天天基金估值接口）"""
         cache_key = f"basic_info_{fund_code}"
         cached = self._get_cache(cache_key)
         if cached:
             return cached
 
+        logger.info(f"获取基金基础信息: {fund_code}")
+
+        # 1) 优先使用蛋卷（字段更完整）
+        if _pysnowball_available:
+            try:
+                data = snowball_fund.fund_info(fund_code)
+                if data and 'data' in data:
+                    fund_data = data['data']
+                    basic_info = FundBasicInfo(
+                        fund_code=fund_code,
+                        fund_name=fund_data.get('fd_name', ''),
+                        fund_type=fund_data.get('fd_full_name', ''),
+                        fund_scale=self._parse_fund_scale(
+                            fund_data.get('fd_total_assets', fund_data.get('totshare', 0))
+                        ),
+                        establish_date=self._parse_date(
+                            fund_data.get('fd_establish_date', fund_data.get('found_date'))
+                        ),
+                        manager_name=fund_data.get('fd_manager_name', fund_data.get('manager_name', '')),
+                        company=fund_data.get('fd_company_name', fund_data.get('keeper_name', ''))
+                    )
+                    self._set_cache(cache_key, basic_info, self._history_cache_expiry)
+                    return basic_info
+            except Exception as e:
+                logger.warning(f"蛋卷基础信息获取失败，尝试降级接口: {e}")
+
+        # 2) 降级：天天基金实时估值接口可拿到基金名称
         try:
-            logger.info(f"获取基金基础信息: {fund_code}")
-            data = snowball_fund.fund_info(fund_code)
-
-            if not data or 'data' not in data:
-                raise ValueError("获取基金基础信息失败")
-
-            fund_data = data['data']
+            estimate_data = self._fetch_tiantian_estimate_raw(fund_code)
+            fund_name = estimate_data.get("name") or f"基金{fund_code}"
             basic_info = FundBasicInfo(
                 fund_code=fund_code,
-                fund_name=fund_data.get('fd_name', ''),
-                fund_type=fund_data.get('fd_full_name', ''),
-                fund_scale=self._parse_fund_scale(
-                    fund_data.get('fd_total_assets', fund_data.get('totshare', 0))
-                ),
-                establish_date=self._parse_date(
-                    fund_data.get('fd_establish_date', fund_data.get('found_date'))
-                ),
-                manager_name=fund_data.get('fd_manager_name', fund_data.get('manager_name', '')),
-                company=fund_data.get('fd_company_name', fund_data.get('keeper_name', ''))
+                fund_name=fund_name,
+                fund_type=None,
+                fund_scale=None,
+                establish_date=None,
+                manager_name=None,
+                company=None,
             )
-
             self._set_cache(cache_key, basic_info, self._history_cache_expiry)
             return basic_info
-
         except Exception as e:
             logger.error(f"获取基金基础信息失败 {fund_code}: {e}")
             raise
 
     def fetch_realtime_quote(self, fund_code: str) -> FundRealtimeQuote:
-        """获取实时行情"""
-        _require_pysnowball()
+        """获取实时行情（优先天天基金实时估值，失败后回退蛋卷）"""
         cache_key = f"realtime_{fund_code}"
         if self._is_cache_valid(cache_key, self._realtime_cache_expiry):
             return self._cache[cache_key]
 
+        # 1) 优先天天基金实时估值（交易日盘中刷新）
         try:
-            logger.info(f"获取实时行情: {fund_code}")
-            # 使用fund_nav_history获取最新净值，因为fund_detail没有quote字段
-            data = snowball_fund.fund_nav_history(fund_code, page=1, size=2)
-
-            if not data or 'data' not in data:
-                raise ValueError("获取实时行情失败")
-
-            items = data['data'].get('items', [])
-            if not items:
-                raise ValueError("净值数据为空")
-
-            latest = items[0]
-            nav_val = float(latest.get('nav', 0) or 0)
-            change_pct = float(latest.get('percentage', 0) or 0)
-
-            quote = FundRealtimeQuote(
-                fund_code=fund_code,
-                nav=nav_val,
-                change_pct=change_pct,
-                day7_return=None
-            )
-
-            self._cache[cache_key] = quote
-            self._cache_expiry[cache_key] = time.time() + self._realtime_cache_expiry
+            estimate_data = self._fetch_tiantian_estimate_raw(fund_code)
+            quote = self._build_quote_from_tiantian(fund_code, estimate_data)
+            self._set_cache(cache_key, quote, self._realtime_cache_expiry)
             return quote
-
         except Exception as e:
-            logger.error(f"获取实时行情失败 {fund_code}: {e}")
-            raise
+            logger.warning(f"天天基金实时估值获取失败，尝试蛋卷回退: {e}")
+
+        # 2) 回退到蛋卷净值接口
+        if _pysnowball_available:
+            try:
+                quote = self._fetch_realtime_quote_from_snowball(fund_code)
+                self._set_cache(cache_key, quote, self._realtime_cache_expiry)
+                return quote
+            except Exception as e:
+                logger.error(f"获取实时行情失败 {fund_code}: {e}")
+                raise
+
+        raise ValueError(f"获取实时行情失败 {fund_code}: 天天基金/蛋卷接口均不可用")
 
     def fetch_nav_history(self, fund_code: str, days: int = 365) -> FundNavHistory:
-        """获取净值历史"""
-        _require_pysnowball()
+        """获取净值历史（优先蛋卷，失败后回退东方财富历史净值）"""
         cache_key = f"nav_history_{fund_code}_{days}"
         cached = self._get_cache(cache_key)
         if cached:
             return cached
 
-        try:
-            logger.info(f"获取净值历史: {fund_code}, 天数: {days}")
-            dates = []
-            navs = []
-
-            # 获取净值历史数据
-            page = 1
-            size = 50
-            max_pages = (days // size) + 2
-
-            while len(dates) < days and page < max_pages:
-                try:
-                    data = snowball_fund.fund_nav_history(fund_code, page=page, size=size)
-
-                    if not data or 'data' not in data:
-                        break
-
-                    nav_list = data['data'].get('items', data['data'].get('list', []))
-                    if not nav_list:
-                        break
-
-                    for item in nav_list:
-                        date_str = item.get('date', '')
-                        nav_value = item.get('nav', item.get('net_value', 0))
-                        if date_str and nav_value:
-                            dates.append(date_str)
-                            navs.append(nav_value)
-
-                        if len(dates) >= days:
-                            break
-
-                    page += 1
-                    time.sleep(0.1)  # 避免请求过快
-
-                except Exception as e:
-                    logger.warning(f"获取第{page}页净值历史失败: {e}")
-                    break
-
-            nav_history = FundNavHistory(
-                fund_code=fund_code,
-                dates=dates,
-                navs=navs
-            )
-
+        # 1) 优先蛋卷
+        nav_history = self._fetch_nav_history_from_snowball(fund_code, days)
+        if nav_history and nav_history.navs:
             self._set_cache(cache_key, nav_history, self._history_cache_expiry)
             return nav_history
 
+        # 2) 回退东方财富历史净值（JSONP）
+        nav_history = self._fetch_nav_history_from_eastmoney(fund_code, days)
+        if nav_history and nav_history.navs:
+            self._set_cache(cache_key, nav_history, self._history_cache_expiry)
+            return nav_history
+
+        raise ValueError(f"获取净值历史失败 {fund_code}: 可用数据源均返回空")
+
+    def _fetch_tiantian_estimate_raw(self, fund_code: str) -> Dict[str, Any]:
+        """调用天天基金实时估值接口并返回原始 JSON。"""
+        url = f"https://fundgz.1234567.com.cn/js/{fund_code}.js"
+        resp = requests.get(url, headers=self._default_headers, timeout=8)
+        resp.raise_for_status()
+        return self._parse_jsonp_payload(resp.text)
+
+    def _build_quote_from_tiantian(self, fund_code: str, payload: Dict[str, Any]) -> FundRealtimeQuote:
+        """将天天基金估值响应转换为统一行情模型。"""
+        prev_nav = self._to_float(payload.get("dwjz"))
+        estimated_nav = self._to_float(payload.get("gsz"))
+        estimated_change_pct = self._to_float(payload.get("gszzl"))
+
+        nav = estimated_nav if estimated_nav is not None else prev_nav
+
+        return FundRealtimeQuote(
+            fund_code=fund_code,
+            nav=nav,
+            change_pct=estimated_change_pct,
+            day7_return=None,
+            previous_nav=prev_nav,
+            previous_nav_date=payload.get("jzrq") or None,
+            estimated_nav=estimated_nav,
+            estimated_change_pct=estimated_change_pct,
+            estimate_time=payload.get("gztime") or None,
+            is_estimated=estimated_nav is not None,
+            source="tiantian_estimate",
+        )
+
+    def _fetch_realtime_quote_from_snowball(self, fund_code: str) -> FundRealtimeQuote:
+        """蛋卷回退实时行情（最新已披露净值）。"""
+        _require_pysnowball()
+        data = snowball_fund.fund_nav_history(fund_code, page=1, size=2)
+
+        if not data or 'data' not in data:
+            raise ValueError("获取实时行情失败")
+
+        items = data['data'].get('items', data['data'].get('list', []))
+        if not items:
+            raise ValueError("净值数据为空")
+
+        latest = items[0]
+        nav_val = self._to_float(latest.get('nav', latest.get('net_value')))
+        change_pct = self._to_float(latest.get('percentage'))
+
+        return FundRealtimeQuote(
+            fund_code=fund_code,
+            nav=nav_val,
+            change_pct=change_pct,
+            day7_return=None,
+            previous_nav=nav_val,
+            previous_nav_date=(latest.get('date') or '')[:10] or None,
+            estimated_nav=None,
+            estimated_change_pct=None,
+            estimate_time=None,
+            is_estimated=False,
+            source="danjuan_nav_history",
+        )
+
+    def _fetch_nav_history_from_snowball(self, fund_code: str, days: int) -> Optional[FundNavHistory]:
+        """从蛋卷获取净值历史。"""
+        if not _pysnowball_available:
+            return None
+
+        try:
+            logger.info(f"获取净值历史(蛋卷): {fund_code}, 天数: {days}")
+            points: List[Tuple[str, float]] = []
+            page = 1
+            size = 50
+            max_pages = (days // size) + 4
+
+            while len(points) < days and page <= max_pages:
+                data = snowball_fund.fund_nav_history(fund_code, page=page, size=size)
+                if not data or 'data' not in data:
+                    break
+
+                nav_list = data['data'].get('items', data['data'].get('list', []))
+                if not nav_list:
+                    break
+
+                for item in nav_list:
+                    date_str = (item.get('date') or '')[:10]
+                    nav_value = self._to_float(item.get('nav', item.get('net_value')))
+                    if date_str and nav_value is not None:
+                        points.append((date_str, nav_value))
+
+                page += 1
+                time.sleep(0.08)
+
+            normalized = self._normalize_nav_points(points, days)
+            if not normalized:
+                return None
+
+            return FundNavHistory(
+                fund_code=fund_code,
+                dates=[d for d, _ in normalized],
+                navs=[v for _, v in normalized],
+            )
         except Exception as e:
-            logger.error(f"获取净值历史失败 {fund_code}: {e}")
-            raise
+            logger.warning(f"蛋卷净值历史获取失败 {fund_code}: {e}")
+            return None
+
+    def _fetch_nav_history_from_eastmoney(self, fund_code: str, days: int) -> Optional[FundNavHistory]:
+        """从东方财富 f10/lsjz(JSONP) 获取历史净值。"""
+        logger.info(f"获取净值历史(东方财富): {fund_code}, 天数: {days}")
+        points: List[Tuple[str, float]] = []
+        page_size = 40
+        max_pages = (days // page_size) + 6
+
+        for page in range(1, max_pages + 1):
+            url = (
+                "https://api.fund.eastmoney.com/f10/lsjz"
+                f"?callback=cb&fundCode={fund_code}&pageIndex={page}"
+                f"&pageSize={page_size}&startDate=&endDate="
+            )
+            try:
+                resp = requests.get(url, headers=self._default_headers, timeout=8)
+                resp.raise_for_status()
+                payload = self._parse_jsonp_payload(resp.text)
+                rows = payload.get("Data", {}).get("LSJZList") or []
+                if not rows:
+                    break
+
+                for row in rows:
+                    date_str = (row.get("FSRQ") or "")[:10]
+                    nav_value = self._to_float(row.get("DWJZ"))
+                    if date_str and nav_value is not None:
+                        points.append((date_str, nav_value))
+
+                if len(points) >= days:
+                    break
+
+                time.sleep(0.08)
+            except Exception as e:
+                logger.warning(f"东方财富净值历史第{page}页失败 {fund_code}: {e}")
+                break
+
+        normalized = self._normalize_nav_points(points, days)
+        if not normalized:
+            return None
+
+        return FundNavHistory(
+            fund_code=fund_code,
+            dates=[d for d, _ in normalized],
+            navs=[v for _, v in normalized],
+        )
+
+    def _normalize_nav_points(self, points: List[Tuple[str, float]], days: int) -> List[Tuple[str, float]]:
+        """按日期排序、去重并截取最近 N 天。"""
+        if not points:
+            return []
+
+        dedup: Dict[str, float] = {}
+        for date_str, nav in points:
+            if date_str and nav is not None:
+                dedup[date_str] = nav
+
+        normalized = sorted(dedup.items(), key=lambda x: x[0])
+        if days > 0 and len(normalized) > days:
+            normalized = normalized[-days:]
+        return normalized
+
+    def _parse_jsonp_payload(self, raw_text: str) -> Dict[str, Any]:
+        """解析 JSONP 响应文本。"""
+        if not raw_text:
+            raise ValueError("空响应")
+
+        text = raw_text.strip()
+        match = re.search(r"\{.*\}", text)
+        if not match:
+            raise ValueError(f"无法解析JSONP: {text[:80]}")
+
+        return json.loads(match.group(0))
+
+    def _to_float(self, value: Any) -> Optional[float]:
+        """安全转换浮点数。"""
+        if value in (None, "", "--"):
+            return None
+        try:
+            return float(str(value).replace('%', '').strip())
+        except Exception:
+            return None
 
     def fetch_holdings(self, fund_code: str) -> HoldingAnalysis:
         """获取持仓分析"""
@@ -528,20 +695,11 @@ class DanjuanDataFetcher(DataFetcher):
 
         try:
             logger.info(f"获取基金公告: {fund_code}")
-            import requests
             url = (
                 f"https://api.fund.eastmoney.com/f10/jjgg"
                 f"?fundCode={fund_code}&pageIndex=1&pageSize={page_size}&type=0"
             )
-            headers = {
-                "Referer": "https://fundf10.eastmoney.com/",
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-            }
-            resp = requests.get(url, headers=headers, timeout=8)
+            resp = requests.get(url, headers=self._default_headers, timeout=8)
             resp.raise_for_status()
             data = resp.json()
 
@@ -568,6 +726,46 @@ class DanjuanDataFetcher(DataFetcher):
             logger.warning(f"获取基金公告失败 {fund_code}: {e}")
             return []
 
+    def fetch_market_indices(self) -> Dict[str, MarketIndexQuote]:
+        """获取上证/深证/创业板/沪深300/中证500等大盘指数行情。"""
+        cache_key = "market_indices_default"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        secids = ",".join(self._index_secids)
+        url = (
+            "https://push2.eastmoney.com/api/qt/ulist.np/get"
+            "?fltt=2&invt=2&fields=f2,f3,f4,f12,f14"
+            f"&secids={secids}"
+        )
+
+        try:
+            resp = requests.get(url, headers=self._default_headers, timeout=8)
+            resp.raise_for_status()
+            payload = resp.json()
+            rows = payload.get("data", {}).get("diff") or []
+
+            result: Dict[str, MarketIndexQuote] = {}
+            for row in rows:
+                index_name = row.get("f14") or str(row.get("f12") or "")
+                index_code = str(row.get("f12") or "")
+                result[index_name] = MarketIndexQuote(
+                    index_code=index_code,
+                    index_name=index_name,
+                    latest_price=self._to_float(row.get("f2")),
+                    change_pct=self._to_float(row.get("f3")),
+                    change_amount=self._to_float(row.get("f4")),
+                )
+
+            self._set_cache(cache_key, result, self._index_cache_expiry)
+            logger.info(f"获取到 {len(result)} 条大盘指数行情")
+            return result
+
+        except Exception as e:
+            logger.warning(f"获取大盘指数行情失败: {e}")
+            return {}
+
     def fetch_stock_quotes(self, stock_codes: list) -> Dict[str, Dict]:
         """
         批量查询股票最新行情（东方财富 push2his 日K接口，并发请求）
@@ -587,7 +785,6 @@ class DanjuanDataFetcher(DataFetcher):
         if cached is not None:
             return cached
 
-        import requests
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from datetime import date
 
