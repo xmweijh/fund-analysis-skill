@@ -135,7 +135,10 @@ class FundAnalyzer:
     def portfolio_analyze_all(self) -> str:
         """
         批量分析持仓中所有基金，生成组合分析报告
+        报告结构：总结摘要 → 目录 → 持仓列表 → 各基金详细报告
         """
+        import re
+
         entries = self.portfolio.list_all()
         if not entries:
             return "📭 持仓列表为空，请先添加持仓后再进行组合分析。"
@@ -143,8 +146,10 @@ class FundAnalyzer:
         fund_codes = [e.fund_code for e in entries]
         logger.info(f"开始批量分析持仓：{fund_codes}")
 
-        reports: List[str] = []
+        # 记录每只基金的报告正文和提取的关键元数据
+        reports: List[str] = []          # 已带锚点的报告正文
         failed: List[str] = []
+        meta_list: List[dict] = []       # 每只基金的摘要元数据
 
         # 逐只分析（避免并发太多 API 请求）
         for entry in entries:
@@ -152,23 +157,61 @@ class FundAnalyzer:
             logger.info(f"分析持仓基金: {code}")
             try:
                 report = self.analyze(code)
-                reports.append(report)
+
+                # ── 从报告文本提取关键字段 ──────────────────────────
+                meta = self._extract_portfolio_meta(code, entry, report)
+                meta_list.append(meta)
+
+                # ── 在报告标题前注入 HTML 锚点 ─────────────────────
+                anchor_id = f"fund-{code}"
+                # 匹配 "# Xxx 基金分析报告" 格式的标题行
+                anchored_report = re.sub(
+                    r'^(# .+基金分析报告)',
+                    rf'<a id="{anchor_id}"></a>\n\1',
+                    report,
+                    count=1,
+                    flags=re.MULTILINE,
+                )
+                reports.append(anchored_report)
             except Exception as e:
                 logger.error(f"分析 {code} 失败: {e}")
                 failed.append(code)
+                meta_list.append({
+                    "code": code,
+                    "name": entry.fund_name or code,
+                    "action": "❌ 失败",
+                    "change_pct": None,
+                    "nav": None,
+                    "nav_time": None,
+                    "conclusion": str(e)[:30],
+                    "return_1y": None,
+                })
 
-        # 汇总报告
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        # ── 1. 文档总标题 ─────────────────────────────────────────
         header_lines = [
-            f"# 📊 持仓组合分析报告",
-            f"",
-            f"> 报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"> 分析基金数：{len(entries)} 只，成功：{len(reports)} 只，失败：{len(failed)} 只",
-            f"",
+            "# 📊 持仓组合分析报告",
+            "",
+            f"> 报告生成时间：{now_str}",
+            f"> 分析基金数：{len(entries)} 只，成功：{len(reports)} 只"
+            + (f"，失败：{len(failed)} 只" if failed else ""),
+            "",
         ]
         if failed:
-            header_lines.append(f"⚠️ 以下基金分析失败，请检查代码或网络：{', '.join(failed)}\n")
+            header_lines.append(
+                f"⚠️ 以下基金分析失败，请检查代码或网络：{', '.join(failed)}\n"
+            )
 
+        # ── 2. 持仓总结摘要表 ─────────────────────────────────────
+        header_lines += self._build_portfolio_summary(meta_list)
+
+        # ── 3. 目录（锚点跳转） ───────────────────────────────────
+        header_lines += self._build_portfolio_toc(meta_list)
+
+        # ── 4. 持仓明细表 ────────────────────────────────────────
         header_lines.append("---\n")
+        header_lines.append("## 📋 持仓列表\n")
         header_lines.append(self.portfolio.render_table())
         header_lines.append("\n---\n")
 
@@ -181,6 +224,125 @@ class FundAnalyzer:
         print(f"报告已保存到: {saved_path}")
 
         return full_report
+
+    # ─────────────────────────── 持仓组合报告辅助方法 ────────────────────────
+
+    @staticmethod
+    def _extract_portfolio_meta(code: str, entry, report: str) -> dict:
+        """从单只基金的 Markdown 报告中提取摘要信息"""
+        import re
+
+        meta: dict = {
+            "code": code,
+            "name": entry.fund_name or code,
+            "action": "—",
+            "change_pct": None,
+            "nav": None,
+            "nav_time": None,
+            "conclusion": "—",
+            "return_1y": None,
+        }
+
+        # 基金名称（从报告标题提取，比持仓记录更准确）
+        m = re.search(r'^# (.+?) 基金分析报告', report, re.MULTILINE)
+        if m:
+            meta["name"] = m.group(1)
+
+        # 操作建议（综合操作建议表格行）
+        m = re.search(r'\*\*操作建议\*\*\s*\|\s*(.+?)\s*\|', report)
+        if m:
+            # 去掉 emoji 前缀和 Markdown 加粗符号，只保留中文建议词
+            raw = m.group(1).strip()
+            raw = re.sub(r'^[🟢🟡🟠🔴🔵⚪]\s*', '', raw)   # 去 emoji
+            raw = raw.replace('**', '').strip()               # 去加粗
+            meta["action"] = raw
+
+        # 核心结论
+        m = re.search(r'\*\*核心结论\*\*\s*\|\s*(.+?)\s*\|', report)
+        if m:
+            meta["conclusion"] = m.group(1).strip()
+
+        # 近1年收益
+        m = re.search(r'\*\*近1年收益\*\*\s*\|\s*[📈📉]\s*([\+\-\d\.]+%)', report)
+        if m:
+            meta["return_1y"] = m.group(1).strip()
+
+        # 日涨跌幅（实时行情章节）
+        m = re.search(r'\*\*日涨跌幅\*\*[：:]\s*([\+\-\d\.]+%)', report)
+        if m:
+            meta["change_pct"] = m.group(1).strip()
+
+        # 当前净值
+        m = re.search(r'\*\*当前净值\*\*[：:]\s*([\d\.]+)', report)
+        if m:
+            meta["nav"] = m.group(1).strip()
+
+        # 估值时间
+        m = re.search(r'\*\*估值时间\*\*[：:]\s*(.+?)(?:\n|$)', report)
+        if m:
+            meta["nav_time"] = m.group(1).strip()
+
+        return meta
+
+    @staticmethod
+    def _build_portfolio_summary(meta_list: List[dict]) -> List[str]:
+        """生成持仓总结摘要表"""
+        _ACTION_EMOJI = {
+            "买入": "🟢", "加仓": "🟢", "建仓": "🟢", "定投": "🔵",
+            "持有": "🟡", "观望": "🟡",
+            "减仓": "🟠", "卖出": "🔴", "清仓": "🔴",
+        }
+
+        lines = [
+            "## 🗂 持仓总结",
+            "",
+            "| # | 基金 | 代码 | 操作建议 | 日涨跌幅 | 当前净值 | 近1年收益 | 核心结论 |",
+            "|---|------|------|---------|---------|---------|---------|---------|",
+        ]
+        for i, m in enumerate(meta_list, 1):
+            emoji = _ACTION_EMOJI.get(m["action"], "")
+            action_str = f"{emoji} {m['action']}" if emoji else m["action"]
+            change = m["change_pct"] or "—"
+            nav = m["nav"] or "—"
+            ret1y = m["return_1y"] or "—"
+            conclusion = m["conclusion"]
+            # 截断过长的结论
+            if len(conclusion) > 28:
+                conclusion = conclusion[:28] + "…"
+            anchor = f"#fund-{m['code']}"
+            name_link = f"[{m['name']}]({anchor})"
+            lines.append(
+                f"| {i} | {name_link} | `{m['code']}` | {action_str} "
+                f"| {change} | {nav} | {ret1y} | {conclusion} |"
+            )
+        lines.append("")
+
+        # 操作分布统计
+        action_counts: dict = {}
+        for m in meta_list:
+            action_counts[m["action"]] = action_counts.get(m["action"], 0) + 1
+
+        stat_parts = [f"**{k}** {v}只" for k, v in sorted(action_counts.items())]
+        lines.append(f"> 📌 **操作分布**：{'，'.join(stat_parts)}")
+        lines.append("")
+
+        return lines
+
+    @staticmethod
+    def _build_portfolio_toc(meta_list: List[dict]) -> List[str]:
+        """生成各基金详细报告的目录（锚点跳转）"""
+        lines = [
+            "## 📑 目录",
+            "",
+        ]
+        for i, m in enumerate(meta_list, 1):
+            anchor = f"#fund-{m['code']}"
+            action = m["action"]
+            change = m["change_pct"] or ""
+            change_str = f"（{change}）" if change else ""
+            lines.append(f"{i}. [{m['name']} `{m['code']}`]({anchor}) — {action}{change_str}")
+        lines.append("")
+        return lines
 
     def analyze(self, fund_code: str) -> str:
         """
