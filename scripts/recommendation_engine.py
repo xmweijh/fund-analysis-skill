@@ -12,13 +12,13 @@ from scripts.logger import logger
 
 @dataclass
 class FundScore:
-    """基金评分数据"""
+    """基金评分数据（已移除舆情评分权重）"""
     fund_code: str
     fund_name: str
     total_score: float  # 总分 0-100
     technical_score: float  # 技术面评分 0-100
     fundamental_score: float  # 基本面评分 0-100
-    sentiment_score: float  # 舆情评分 0-100
+    sentiment_score: float  # 舆情评分 0-100（仅展示，不参与总分计算）
     risk_level: str  # 风险等级: 低/中/高
     reason: str  # 推荐理由
     # 原始数据,用于生成详细推荐卡片
@@ -42,22 +42,21 @@ class FundRecommendationInput:
 
 
 class FundScorer:
-    """基金评分器 - 计算综合评分"""
-    
+    """基金评分器 - 计算综合评分（技术面50% + 基本面50%，舆情仅展示）"""
+
     def __init__(self):
         """初始化评分器"""
-        self.tech_weight = 0.40
-        self.fundamental_weight = 0.40
-        self.sentiment_weight = 0.20
-        logger.info("FundScorer initialized")
-    
+        self.tech_weight = 0.50
+        self.fundamental_weight = 0.50
+        logger.info("FundScorer initialized (sentiment excluded from scoring)")
+
     def score(self, fund_data: FundRecommendationInput) -> FundScore:
         """
         计算基金综合评分
-        
+
         Args:
             fund_data: 基金数据
-            
+
         Returns:
             FundScore 评分结果
         """
@@ -65,21 +64,20 @@ class FundScorer:
             # 计算各维度评分
             tech_score = self._score_technical(fund_data.technical)
             fundamental_score = self._score_fundamental(fund_data.holding, fund_data.manager, fund_data.performance)
-            sentiment_score = self._score_sentiment(fund_data.sentiment)
-            
-            # 加权计算总分
+            sentiment_score = self._score_sentiment(fund_data.sentiment)  # 仅展示，不参与总分
+
+            # 加权计算总分（技术面 + 基本面）
             total_score = (
                 tech_score * self.tech_weight +
-                fundamental_score * self.fundamental_weight +
-                sentiment_score * self.sentiment_weight
+                fundamental_score * self.fundamental_weight
             )
-            
+
             # 确定风险等级
             risk_level = self._determine_risk_level(fund_data.performance, fund_data.technical)
-            
+
             # 生成推荐理由
-            reason = self._generate_reason(fund_data, tech_score, fundamental_score, sentiment_score)
-            
+            reason = self._generate_reason(fund_data, tech_score, fundamental_score)
+
             return FundScore(
                 fund_code=fund_data.fund_code,
                 fund_name=fund_data.fund_name,
@@ -265,33 +263,30 @@ class FundScorer:
         self,
         fund_data: FundRecommendationInput,
         tech_score: float,
-        fundamental_score: float,
-        sentiment_score: float
+        fundamental_score: float
     ) -> str:
-        """生成推荐理由"""
+        """生成推荐理由（基于技术面和基本面）"""
         reasons = []
-        
+
         # 基本面理由
         if fund_data.performance and fund_data.performance.return_3y is not None:
             ret = fund_data.performance.return_3y
             if ret > 20:
-                reasons.append(f"近3年收益{ret:.2f}%表现优异")
-        
+                reasons.append(f"近3年收益{ret:.1f}%表现优异")
+            elif ret > 10:
+                reasons.append(f"近3年收益{ret:.1f}%表现良好")
+
         # 技术面理由
-        if fund_data.technical and fund_data.technical.trend == "上升":
-            reasons.append("技术面多头排列")
-        
+        if fund_data.technical:
+            if fund_data.technical.trend == "上升":
+                reasons.append("技术面呈上升趋势")
+            elif "多头排列" in (fund_data.technical.formation or ""):
+                reasons.append("技术面多头排列")
+
         # 经理理由
         if fund_data.manager and fund_data.manager.is_senior:
-            reasons.append("经理资深")
-        
-        # 舆情理由
-        if fund_data.sentiment:
-            if fund_data.sentiment.score > 70:
-                reasons.append("舆情正面")
-            elif fund_data.sentiment.score < 30:
-                reasons.append("舆情偏悲观")
-        
+            reasons.append("基金经理资深")
+
         return "，".join(reasons) if reasons else "综合评分良好"
 
 

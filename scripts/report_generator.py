@@ -114,7 +114,7 @@ class ReportGenerator:
         sentiment: Optional[SentimentData] = None,
         performance: Optional[PerformanceData] = None
     ) -> str:
-        """格式化投资建议摘要卡片（报告顶部醒目展示）"""
+        """格式化投资建议摘要卡片（决策仪表盘风格）"""
         lines = []
 
         # 操作建议 → Emoji 映射
@@ -131,14 +131,16 @@ class ReportGenerator:
         }
         action_emoji = _ACTION_EMOJI.get(advice.action, "⚪")
 
-        lines.append("## 📋 综合操作建议\n")
-        lines.append("> 以下综合技术面、基本面和舆情进行评估，仅供参考，不构成投资建议。\n")
-        lines.append("| 维度 | 评估 |")
+        lines.append("## 基金决策仪表盘\n")
+
+        # 核心结论
+        lines.append("### 核心结论\n")
+        lines.append("| 项目 | 评估 |")
         lines.append("|------|------|")
         lines.append(f"| **操作建议** | {action_emoji} **{advice.action}** |")
-        lines.append(f"| **核心结论** | {advice.conclusion} |")
+        lines.append(f"| **一句话总结** | {advice.conclusion} |")
 
-        # 近1年收益（基本面参考）
+        # 近1年收益
         if performance and performance.return_1y is not None:
             ret_sign = "📈" if performance.return_1y >= 0 else "📉"
             lines.append(f"| **近1年收益** | {ret_sign} {performance.return_1y:+.2f}% |")
@@ -147,21 +149,24 @@ class ReportGenerator:
         if performance and performance.max_drawdown is not None:
             lines.append(f"| **历史最大回撤** | -{performance.max_drawdown:.2f}% |")
 
-        # 舆情
-        if sentiment:
-            sent_emoji = {"强烈正面": "😀", "正面": "🙂", "中性": "😐",
-                          "负面": "😟", "强烈负面": "😨"}.get(sentiment.level, "")
-            lines.append(f"| **舆情情绪** | {sent_emoji} {sentiment.level}（{sentiment.score:.0f}/100）|")
-
-        # 买卖点位
-        if advice.ideal_buy:
-            lines.append(f"| **参考买点** | {advice.ideal_buy} |")
-        if advice.take_profit:
-            lines.append(f"| **参考止盈** | {advice.take_profit} |")
-        if advice.stop_loss:
-            lines.append(f"| **参考止损** | {advice.stop_loss} |")
-
         lines.append("")
+
+        # 作战计划
+        has_plan = any([advice.ideal_buy, advice.secondary_buy, advice.take_profit, advice.stop_loss])
+        if has_plan:
+            lines.append("### 作战计划\n")
+            lines.append("| 类型 | 点位/操作 |")
+            lines.append("|------|----------|")
+            if advice.ideal_buy:
+                lines.append(f"| **理想买点** | 净值 < {advice.ideal_buy} |")
+            if advice.secondary_buy:
+                lines.append(f"| **次要买点** | 净值 < {advice.secondary_buy} |")
+            if advice.take_profit:
+                lines.append(f"| **止盈位** | 净值 > {advice.take_profit} |")
+            if advice.stop_loss:
+                lines.append(f"| **止损位** | 净值 < {advice.stop_loss} |")
+            lines.append("")
+
         lines.append("---\n")
         return "\n".join(lines)
 
@@ -429,33 +434,29 @@ class ReportGenerator:
         return "\n".join(lines)
 
     def _format_sentiment_analysis(self, sentiment: SentimentData) -> str:
-        """格式化舆情分析"""
+        """格式化公告列表（简化版，不做情绪评分）"""
         lines = []
-        lines.append("## 📰 舆情分析\n")
-
-        lines.append(f"- **舆情得分**: {sentiment.score:.1f}/100")
-        lines.append(f"- **情绪等级**: {sentiment.level}")
-        lines.append(f"- **公告数量**: {sentiment.news_count}条（展示前{len(sentiment.news_items)}条有效信号）")
-
-        if sentiment.keywords:
-            lines.append(f"\n### 关键词\n")
-            lines.append(", ".join(sentiment.keywords))
+        lines.append("## 📰 最新公告\n")
+        lines.append(f"> 展示最近 {len(sentiment.news_items)} 条公告，仅供参考\n")
 
         if sentiment.news_items:
-            lines.append(f"\n### 重要公告\n")
-            _SENTIMENT_LABEL = {
-                "正面": "✅ 利好",
-                "负面": "⚠️ 利空",
-                "中性": "➖ 中性",
+            _LABEL_EMOJI = {
+                "分红": "💰",
+                "限购": "🚫",
+                "恢复申赎": "✅",
+                "经理变更": "👤",
+                "清盘风险": "⚠️",
+                "降费": "📉",
+                "常规": "📄",
             }
-            for i, news in enumerate(sentiment.news_items[:5], 1):
-                label = _SENTIMENT_LABEL.get(news.sentiment, news.sentiment)
-                lines.append(f"{i}. **{label}** {news.title}")
+            for i, news in enumerate(sentiment.news_items, 1):
+                emoji = _LABEL_EMOJI.get(news.sentiment, "📄")
+                lines.append(f"{i}. **{emoji} [{news.sentiment}]** {news.title}")
                 if news.summary:
                     lines.append(f"   - {news.summary}")
-                lines.append("")
+            lines.append("")
         else:
-            lines.append("\n> 暂无有效舆情信号（季报/年报/运营公告已过滤）\n")
+            lines.append("> 暂无近期公告\n")
 
         lines.append("")
         return "\n".join(lines)

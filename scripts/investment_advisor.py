@@ -24,34 +24,33 @@ class InvestmentAdvisor:
         current_nav: float
     ) -> InvestmentAdvice:
         """
-        生成投资建议
+        生成投资建议（已移除舆情权重，仅基于技术面和基本面）
 
         Args:
             technical: 技术分析结果
             holding: 持仓分析结果
             manager: 基金经理分析结果
             performance: 业绩分析结果
-            sentiment: 舆情分析结果
+            sentiment: 舆情分析结果（保留参数但不参与评分）
             current_nav: 当前净值
 
         Returns:
             投资建议
         """
         try:
-            # 计算综合得分
+            # 计算综合得分（技术面50% + 基本面50%，舆情不再参与评分）
             technical_score = self._calculate_technical_score(technical)
             fundamental_score = self._calculate_fundamental_score(holding, manager, performance)
-            sentiment_score = sentiment.score
 
             composite_score = self._calculate_composite_score(
-                technical_score, fundamental_score, sentiment_score
+                technical_score, fundamental_score
             )
 
             # 确定操作建议
             action = self._determine_action(composite_score, technical)
 
             # 生成核心结论
-            conclusion = self._generate_conclusion(action, composite_score, technical)
+            conclusion = self._generate_conclusion(action, composite_score, technical, performance)
 
             # 计算买卖点位
             volatility = self._calculate_volatility(performance)
@@ -149,12 +148,11 @@ class InvestmentAdvisor:
     def _calculate_composite_score(
         self,
         technical_score: float,
-        fundamental_score: float,
-        sentiment_score: float
+        fundamental_score: float
     ) -> float:
-        """计算综合得分"""
-        weights = [0.4, 0.4, 0.2]
-        scores = [technical_score, fundamental_score, sentiment_score]
+        """计算综合得分（技术面50% + 基本面50%）"""
+        weights = [0.5, 0.5]
+        scores = [technical_score, fundamental_score]
 
         composite = sum(s * w for s, w in zip(scores, weights))
         return round(composite, 2)
@@ -182,26 +180,39 @@ class InvestmentAdvisor:
         self,
         action: str,
         composite_score: float,
-        technical: TechnicalIndicators
+        technical: TechnicalIndicators,
+        performance: PerformanceData
     ) -> str:
-        """生成核心结论"""
+        """生成核心结论（基于技术面和基本面）"""
         trend_desc = technical.trend
         formation_desc = technical.formation
 
+        # 构建业绩描述
+        perf_desc = ""
+        if performance.return_1y is not None:
+            if performance.return_1y > 20:
+                perf_desc = "业绩优秀"
+            elif performance.return_1y > 10:
+                perf_desc = "业绩良好"
+            elif performance.return_1y > 0:
+                perf_desc = "业绩平稳"
+            else:
+                perf_desc = "业绩承压"
+
         if action == "买入":
             if "多头排列" in formation_desc:
-                return f"基金技术面呈多头排列,{trend_desc}趋势明显,建议积极配置"
+                return f"技术面呈多头排列，{perf_desc}，建议积极配置"
             else:
-                return f"基金基本面稳健,{trend_desc}趋势,建议逢低买入"
+                return f"{perf_desc}，技术面{trend_desc}，建议逢低买入"
         elif action == "持有":
-            return f"基金表现平稳,{trend_desc}趋势,建议继续持有观察"
+            return f"{perf_desc}，{trend_desc}趋势，建议继续持有"
         elif action == "卖出":
             if "空头排列" in formation_desc:
-                return f"基金技术面呈空头排列,{trend_desc}趋势,建议减仓或退出"
+                return f"技术面呈空头排列，建议减仓避险"
             else:
-                return f"基金表现不佳,{trend_desc}趋势,建议谨慎持有"
+                return f"基本面转弱，建议谨慎持有或减仓"
         else:
-            return f"基金处于{trend_desc}趋势中,建议观望等待明确信号"
+            return f"趋势不明朗，建议观望等待信号"
 
     def _calculate_volatility(self, performance: PerformanceData) -> float:
         """计算波动率"""

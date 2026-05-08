@@ -50,24 +50,19 @@ class RecommendationCardGenerator:
             lines.append(f"**综合评分**: {stars} {fund_score.total_score}/100")
             lines.append("")
 
-            # 维度评分
+            # 维度评分（技术面和基本面为主，舆情仅参考）
             lines.append("**维度评分**:")
-            lines.append(f"- 📈 技术面: {fund_score.technical_score}/100", )
+            lines.append(f"- 📈 技术面: **{fund_score.technical_score:.0f}**/100", )
             if technical and technical.trend:
                 lines[-1] += f" ({technical.trend}趋势)"
             lines.append("")
 
-            lines.append(f"- 💰 基本面: {fund_score.fundamental_score}/100")
+            lines.append(f"- 💰 基本面: **{fund_score.fundamental_score:.0f}**/100")
             if performance and performance.return_3y is not None:
-                lines[-1] += f" (3年收益 {performance.return_3y:+.2f}%"
+                lines[-1] += f" (3年收益 {performance.return_3y:+.1f}%"
                 if performance.rank_percentile is not None:
                     lines[-1] += f", 超越同类 {performance.rank_percentile:.0f}%"
                 lines[-1] += ")"
-            lines.append("")
-
-            lines.append(f"- 📢 舆情: {fund_score.sentiment_score}/100")
-            if sentiment:
-                lines[-1] += f" ({sentiment.level})"
             lines.append("")
 
             # 推荐理由
