@@ -29,6 +29,8 @@ from scripts.analysis_v2 import (
     TechnicalAnalysisResult,
     StrategyRouter,
     SIPAdvisor,
+    RiskAnalyzer,
+    SentimentAnalyzer,
 )
 from scripts.position_config_manager import PositionConfigManager
 from scripts.report_v2 import ReportGenerator
@@ -90,6 +92,8 @@ class FundAnalyzerV2:
         self.position_manager = PositionConfigManager()
         self.report_generator = ReportGenerator()
         self.portfolio = PortfolioManager()
+        self.risk_analyzer = RiskAnalyzer()
+        self.sentiment_analyzer = SentimentAnalyzer()
 
         logger.info("FundAnalyzerV2 初始化完成")
 
@@ -157,6 +161,16 @@ class FundAnalyzerV2:
         else:
             logger.warning(f"[v2] 净值历史数据无效，跳过技术分析")
 
+        # 3.5 风险指标分析（新增）
+        logger.info(f"[v2] Step 3.5: 风险指标分析 {fund_code}")
+        risk_metrics = None
+        if nav_history and nav_history.navs:
+            try:
+                risk_metrics = self.risk_analyzer.analyze(nav_history)
+                logger.info(f"[v2] 风险分析完成，夏普比率: {risk_metrics.sharpe_ratio}")
+            except Exception as e:
+                logger.warning(f"[v2] 风险分析失败: {e}")
+
         # 4. 路由到合适策略
         logger.info(f"[v2] Step 4: 策略路由 {fund_code}")
         strategy = None
@@ -170,13 +184,25 @@ class FundAnalyzerV2:
         # 5. 计算五维评分
         logger.info(f"[v2] Step 5: 计算五维评分 {fund_code}")
         scores: Optional[FiveDimensionScores] = None
+        sentiment_result = None
         if strategy:
             try:
                 tech_score = float(tech_result.buy_signal_score) if tech_result else 50.0
                 valuation_score = self._calc_valuation_score(valuation)
-                fundamental_score = self._calc_fundamental_score(performance, manager)
+                fundamental_score = self._calc_fundamental_score(performance, manager, risk_metrics)
                 capital_flow_score = self._calc_capital_flow_score(basic_info, quote)
-                sentiment_score = 50.0  # 默认中性
+
+                # 使用 SentimentAnalyzer 计算情绪面评分
+                try:
+                    sentiment_result = self.sentiment_analyzer.analyze(
+                        nav_history,
+                        recent_change_pct=getattr(quote, 'change_pct', None)
+                    )
+                    sentiment_score = sentiment_result.overall_sentiment_score
+                    logger.info(f"[v2] 情绪面评分: {sentiment_score:.1f}")
+                except Exception as e:
+                    logger.warning(f"[v2] 情绪分析失败: {e}")
+                    sentiment_score = 50.0
 
                 scores = strategy.calculate_scores(
                     technical=tech_score,
@@ -222,6 +248,8 @@ class FundAnalyzerV2:
             performance=performance,
             manager=manager,
             strategy=strategy,
+            risk_metrics=risk_metrics,
+            sentiment_result=sentiment_result,
         )
 
         # 9. 生成并保存报告
@@ -301,10 +329,21 @@ class FundAnalyzerV2:
         self,
         performance: Any,
         manager: Any,
+        risk_metrics: Optional[Any] = None,
     ) -> float:
         """
-        根据业绩数据和基金经理信息计算基本面评分 (0-100)。
+        根据业绩数据、基金经理信息和风险指标计算基本面评分 (0-100)。
         """
+        # 优先使用风险指标计算的基本面评分
+        if risk_metrics is not None:
+            try:
+                score = self.risk_analyzer.calculate_fundamental_score(risk_metrics)
+                logger.info(f"[v2] 使用风险指标计算基本面评分: {score:.1f}")
+                return score
+            except Exception as e:
+                logger.warning(f"[v2] 风险指标评分失败，使用传统方法: {e}")
+
+        # 传统计算方法（作为 fallback）
         score = 50.0
 
         if performance is None:
@@ -582,6 +621,8 @@ class FundAnalyzerV2:
         performance: Any,
         manager: Any,
         strategy: Any,
+        risk_metrics: Optional[Any] = None,
+        sentiment_result: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         将所有分析结果组装为 ReportGenerator 所需的字典格式。
@@ -688,6 +729,16 @@ class FundAnalyzerV2:
                 "is_senior": getattr(manager, "is_senior", False),
             }
 
+        # ── 风险指标 ────────────────────────────────────────────────
+        risk_dict: Optional[Dict[str, Any]] = None
+        if risk_metrics:
+            risk_dict = risk_metrics.to_dict()
+
+        # ── 情绪指标 ────────────────────────────────────────────────
+        sentiment_dict: Optional[Dict[str, Any]] = None
+        if sentiment_result:
+            sentiment_dict = sentiment_result.to_dict()
+
         # ── 操作建议 ────────────────────────────────────────────────
         action = "观望"
         conclusion = "请结合自身情况谨慎决策"
@@ -710,6 +761,8 @@ class FundAnalyzerV2:
             "scores": scores_dict,
             "performance": performance_dict,
             "manager": manager_dict,
+            "risk_metrics": risk_dict,
+            "sentiment": sentiment_dict,
             "position_advice": position_advice,
             "sip_enabled": sip_enabled,
             "sip_advice": sip_advice,
