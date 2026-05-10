@@ -56,16 +56,84 @@ _FUND_INDEX_MAP: Dict[str, str] = {
     "161032": "000852",
 }
 
-# 常见指数名称关键词 -> 指数代码
+# 常见指数名称关键词 -> 指数代码（蛋卷接口使用带前缀的index_code）
+# 上海指数: SH000300, 深圳指数: SZ399006, 香港指数: HKHSI, 美股: NDX/SP500
 _INDEX_NAME_KEYWORDS: Dict[str, str] = {
-    "沪深300": "000300",
-    "中证500": "000905",
-    "创业板": "399006",
-    "上证50": "000016",
-    "科创50": "000688",
-    "中证1000": "000852",
-    "恒生": "HSI",
-    "纳斯达克": "NDX",
+    # 宽基指数
+    "沪深300": "SH000300",
+    "中证500": "SH000905",
+    "创业板": "SZ399006",
+    "上证50": "SH000016",
+    "科创50": "SH000688",
+    "中证1000": "SH000852",
+    "中证2000": "SH932000",
+    "中证100": "SH000903",
+    "深证100": "SZ399330",
+    "深证成指": "SZ399001",
+    "国证A指": "SZ399317",
+
+    # 红利/价值指数
+    "红利低波": "CSIH30269",
+    "红利低波动": "CSIH30269",
+    "红利成长低波": "CSIH30269",
+    "红利成长LV": "CSIH30269",
+    "中证红利": "SH000922",
+    "上证红利": "SH000015",
+    "深证红利": "SZ399324",
+    "300红利": "SH000821",
+    "300红利LV": "SHH30255",
+    "500低波": "SHH30264",
+    "标普红利": "SPDIV",
+    "标普价值": "SP1500V",
+    "300价值": "SH000919",
+    "标普质量": "SZ399398",
+    "基本面50": "SH000925",
+    "基本面120": "SZ399702",
+    "基本面60": "SZ399701",
+    "央视50": "SZ399550",
+    "50AH优选": "SH950090",
+
+    # 行业指数
+    "中证白酒": "SZ399997",
+    "国证食品": "SZ399396",
+    "主要消费": "SH000932",
+    "消费红利": "SHH30094",
+    "全指可选": "SH000989",
+    "中证医疗": "SZ399989",
+    "全指医药": "SH000991",
+    "医药100": "SH000978",
+    "证券公司": "SZ399975",
+    "中证银行": "SZ399986",
+    "中证煤炭": "SZ399998",
+    "中证传媒": "SZ399971",
+    "中证环保": "SH000827",
+    "中证电子": "SH930652",
+    "全指信息": "SH000935",
+    "科技龙头": "SH931087",
+    "TMT50": "SH000008",
+    "5G通讯": "SH931079",
+    "中证军工": "SZ399967",
+    "新能源车": "SH930997",
+    "养老产业": "SZ399812",
+    "国证地产": "SZ399393",
+    "新经济": "SH000964",
+
+    # 港股/海外指数
+    "恒生指数": "HKHSI",
+    "恒生科技": "HKHSTECH",
+    "国企指数": "HKHSCEI",
+    "香港大盘": "HKLARGE",
+    "香港中小": "HKSMALL",
+    "中概互联": "HKH11136",
+    "中概互联50": "HKH30532",
+    "中国互联": "HKH11137",
+    "纳指100": "NDX",
+    "纳斯达克100": "NDX",
+    "标普500": "SP500",
+    "德国DAX": "GDAXI",
+    "MSCI中国": "MSCI_CHINA",
+    "MSCI印度": "MSCI_INDIA",
+    "东证竞争": "TOPIX",
 }
 
 
@@ -740,6 +808,46 @@ class FundAnalyzerV2:
                 "status": valuation.status,
                 "update_date": valuation.update_date,
             }
+        elif performance:
+            # 对于没有估值数据的主动基金，基于业绩构建估算估值
+            est_pe_percentile = 50.0
+            status = "估算"
+            if hasattr(performance, 'return_1y') and performance.return_1y is not None:
+                r1y = performance.return_1y
+                if r1y > 30:
+                    est_pe_percentile = 70.0  # 大涨后可能高估
+                    status = "可能高估"
+                elif r1y > 15:
+                    est_pe_percentile = 60.0
+                    status = "中性偏高"
+                elif r1y < -20:
+                    est_pe_percentile = 20.0  # 大跌后可能低估
+                    status = "可能低估"
+                elif r1y < -10:
+                    est_pe_percentile = 30.0
+                    status = "中性偏低"
+                else:
+                    est_pe_percentile = 50.0
+                    status = "中性"
+
+            # 结合排名调整
+            if hasattr(performance, 'rank_percentile') and performance.rank_percentile is not None:
+                rp = performance.rank_percentile
+                if rp > 75:
+                    status += "(业绩优秀)"
+                elif rp < 25:
+                    status += "(业绩落后)"
+
+            valuation_dict = {
+                "pe_ttm": None,
+                "pb": None,
+                "pe_percentile": est_pe_percentile,
+                "pb_percentile": None,
+                "risk_premium": None,
+                "status": f"基于业绩估算: {status}",
+                "update_date": None,
+                "is_estimate": True,
+            }
 
         # ── 五维评分 ────────────────────────────────────────────────
         scores_dict: Optional[Dict[str, Any]] = None
@@ -775,12 +883,18 @@ class FundAnalyzerV2:
             yearly_data = []
             if hasattr(performance, "yearly_performance") and performance.yearly_performance:
                 for yp in performance.yearly_performance:
+                    self_return = getattr(yp, "self_return", None)
+                    benchmark_return = getattr(yp, "benchmark_return", None)
+                    # 计算超额收益
+                    excess_return = None
+                    if self_return is not None and benchmark_return is not None:
+                        excess_return = round(self_return - benchmark_return, 2)
                     yearly_data.append({
                         "year": getattr(yp, "year", None),
-                        "return_pct": getattr(yp, "return_pct", None),
-                        "benchmark_return": getattr(yp, "benchmark_return", None),
-                        "excess_return": getattr(yp, "excess_return", None),
-                        "rank_percentile": getattr(yp, "rank_percentile", None),
+                        "return_pct": self_return,
+                        "benchmark_return": benchmark_return,
+                        "excess_return": excess_return,
+                        "rank_percentile": getattr(yp, "rank_pct", None),
                     })
 
             performance_dict = {

@@ -227,7 +227,10 @@ function buildSummaryCards(d) {{
     {{
       label: '估值状态',
       value: esc(valuationStatus),
-      sub: d.valuation ? ('PE: ' + fmt2(d.valuation.pe_ttm) + ' / PB: ' + fmt2(d.valuation.pb)) : '',
+      sub: d.valuation ?
+        (d.valuation.is_estimate ?
+          ('估算PE百分位: ' + fmt2(d.valuation.pe_percentile) + '%') :
+          ('PE: ' + fmt2(d.valuation.pe_ttm) + ' / PB: ' + fmt2(d.valuation.pb))) : '',
       cls: 'card ' + (valuationStatus.includes('低估') ? 'action-buy' : valuationStatus.includes('高估') ? 'action-sell' : 'neutral'),
     }},
     {{

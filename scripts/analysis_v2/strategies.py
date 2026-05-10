@@ -310,15 +310,17 @@ class StrategyRouter:
 
         fund_type = fund_info.fund_type.strip()
 
-        # 检查指数基金类型
-        if fund_type in self.INDEX_FUND_TYPES:
-            logger.debug(f"基金 {fund_info.fund_code} 为指数基金类型: {fund_type}")
-            return IndexFundStrategy()
+        # 检查指数基金类型（使用子字符串匹配）
+        for index_type in self.INDEX_FUND_TYPES:
+            if index_type in fund_type:
+                logger.debug(f"基金 {fund_info.fund_code} 为指数基金类型: {fund_type}")
+                return IndexFundStrategy()
 
-        # 检查主动基金类型
-        if fund_type in self.ACTIVE_FUND_TYPES:
-            logger.debug(f"基金 {fund_info.fund_code} 为主动基金类型: {fund_type}")
-            return ActiveFundStrategy()
+        # 检查主动基金类型（使用子字符串匹配）
+        for active_type in self.ACTIVE_FUND_TYPES:
+            if active_type in fund_type:
+                logger.debug(f"基金 {fund_info.fund_code} 为主动基金类型: {fund_type}")
+                return ActiveFundStrategy()
 
         # 如果都不匹配，记录警告并返回默认策略
         logger.warning(
