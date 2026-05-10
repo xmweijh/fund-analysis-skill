@@ -3,6 +3,7 @@
 使用Pydantic进行数据验证
 """
 
+from datetime import datetime
 from typing import List, Dict, Optional
 from pydantic import BaseModel, Field, validator
 
@@ -173,3 +174,114 @@ class InvestmentAdvice(BaseModel):
         if v not in valid_actions:
             raise ValueError(f"操作建议必须是: {', '.join(valid_actions)}")
         return v
+
+
+class ValuationData(BaseModel):
+    """估值数据 - 新增"""
+    pe_ttm: Optional[float] = Field(None, description="PE-TTM")
+    pb: Optional[float] = Field(None, description="PB")
+    pe_percentile: Optional[float] = Field(None, description="PE历史百分位(0-100)")
+    pb_percentile: Optional[float] = Field(None, description="PB历史百分位(0-100)")
+    risk_premium: Optional[float] = Field(None, description="风险溢价(%)")
+    equity_bond_ratio: Optional[float] = Field(None, description="股债性价比")
+    status: str = Field(default="未知", description="估值状态: 极度低估/低估/合理/高估/极度高估")
+    update_date: Optional[str] = Field(None, description="数据更新日期")
+
+
+class MACDIndicators(BaseModel):
+    """MACD指标 - 新增"""
+    dif: Optional[float] = Field(None, description="DIF快线")
+    dea: Optional[float] = Field(None, description="DEA慢线")
+    bar: Optional[float] = Field(None, description="MACD柱状图")
+    signal: str = Field(default="未知", description="信号: 金叉/死叉/多头/空头")
+
+
+class RSIIndicators(BaseModel):
+    """RSI指标 - 新增"""
+    rsi_6: Optional[float] = Field(None, description="RSI(6)")
+    rsi_12: Optional[float] = Field(None, description="RSI(12)")
+    rsi_24: Optional[float] = Field(None, description="RSI(24)")
+    status: str = Field(default="中性", description="状态: 超买/强势/中性/弱势/超卖")
+
+
+class EnhancedTechnicalIndicators(BaseModel):
+    """增强版技术指标 - 新增"""
+    ma5: Optional[float] = Field(None, description="5日均线")
+    ma10: Optional[float] = Field(None, description="10日均线")
+    ma20: Optional[float] = Field(None, description="20日均线")
+    ma60: Optional[float] = Field(None, description="60日均线")
+    ma250: Optional[float] = Field(None, description="250日均线(年线)")
+    trend: str = Field(default="未知", description="趋势: 上升/下降/震荡")
+    formation: str = Field(default="无明确形态", description="形态")
+    signals: List[str] = Field(default_factory=list, description="技术信号列表")
+    macd: MACDIndicators = Field(default_factory=MACDIndicators)
+    rsi: RSIIndicators = Field(default_factory=RSIIndicators)
+    bias_ma5: Optional[float] = Field(None, description="MA5乖离率(%)")
+    bias_ma20: Optional[float] = Field(None, description="MA20乖离率(%)")
+    bias_ma250: Optional[float] = Field(None, description="年线乖离率(%)")
+    volume_ratio: Optional[float] = Field(None, description="量比")
+
+
+class PositionConfig(BaseModel):
+    """用户仓位配置 - 新增"""
+    fund_code: Optional[str] = Field(None, description="基金代码，None表示默认配置")
+    fund_type: str = Field(..., description="基金类型分类")
+    target_pct: float = Field(..., description="目标仓位(%)", ge=0, le=100)
+    min_pct: float = Field(..., description="最低仓位线(%)", ge=0, le=100)
+    max_pct: float = Field(..., description="最高仓位线(%)", ge=0, le=100)
+    is_default: bool = Field(default=False, description="是否为该类型的默认配置")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+    @validator('min_pct')
+    def validate_min(cls, v, values):
+        if 'target_pct' in values and v > values['target_pct']:
+            raise ValueError("最低仓位线不能高于目标仓位")
+        return v
+
+    @validator('max_pct')
+    def validate_max(cls, v, values):
+        if 'target_pct' in values and v < values['target_pct']:
+            raise ValueError("最高仓位线不能低于目标仓位")
+        return v
+
+
+class PositionAdvice(BaseModel):
+    """仓位建议 - 新增"""
+    fund_code: str = Field(..., description="基金代码")
+    fund_name: str = Field(..., description="基金名称")
+    current_pct: float = Field(..., description="当前仓位(%)")
+    current_amount: Optional[float] = Field(None, description="当前金额")
+    target_pct: float = Field(..., description="目标仓位(%)")
+    min_pct: float = Field(..., description="最低仓位线(%)")
+    max_pct: float = Field(..., description="最高仓位线(%)")
+    deviation_pct: float = Field(..., description="偏离度(%)")
+    distance_to_min: float = Field(..., description="距离最低线(%)")
+    distance_to_max: float = Field(..., description="距离最高线(%)")
+    action: str = Field(..., description="操作建议: 加仓/减仓/持有/定投/观望")
+    action_amount: Optional[float] = Field(None, description="建议操作金额")
+    action_ratio: Optional[float] = Field(None, description="建议操作比例")
+    urgency: str = Field(default="不急", description="紧急程度: 立即/本周/本月/不急")
+    reason: str = Field(..., description="建议理由")
+
+
+class SIPAdvice(BaseModel):
+    """定投建议 - 新增"""
+    fund_code: str = Field(..., description="基金代码")
+    strategy: str = Field(..., description="策略: ma250/valuation/hybrid")
+    base_amount: float = Field(..., description="用户基础定投金额")
+    suggested_amount: float = Field(..., description="建议定投金额")
+    multiplier: float = Field(..., description="定投倍数")
+    signal: str = Field(..., description="信号: 开始定投/加倍定投/正常定投/减少定投/停止定投")
+    take_profit_plan: List[Dict] = Field(default_factory=list, description="止盈计划")
+
+
+class FiveDimensionScores(BaseModel):
+    """五维评分 - 新增"""
+    technical: float = Field(..., description="技术面得分(0-100)", ge=0, le=100)
+    fundamental: float = Field(..., description="基本面得分(0-100)", ge=0, le=100)
+    valuation: float = Field(..., description="估值面得分(0-100)", ge=0, le=100)
+    capital_flow: float = Field(..., description="资金面得分(0-100)", ge=0, le=100)
+    sentiment: float = Field(..., description="情绪面得分(0-100)", ge=0, le=100)
+    total: float = Field(..., description="加权总分(0-100)", ge=0, le=100)
+    weights: Dict[str, float] = Field(..., description="各维度权重")
