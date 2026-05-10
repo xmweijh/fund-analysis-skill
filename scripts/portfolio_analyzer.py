@@ -290,7 +290,7 @@ class PortfolioAnalyzer:
 
         # 生成HTML
         html_path = os.path.join(output_dir, f'portfolio_summary_{timestamp}.html')
-        html_content = self._generate_html(report_data)
+        html_content = self._generate_html(report_data, timestamp)
         with open(html_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
 
@@ -334,7 +334,7 @@ class PortfolioAnalyzer:
             ]
         }
 
-    def _generate_html(self, data: Dict[str, Any]) -> str:
+    def _generate_html(self, data: Dict[str, Any], report_timestamp: str) -> str:
         """生成HTML报告"""
         summary = data['summary']
         holdings = data['holdings']
@@ -456,6 +456,16 @@ class PortfolioAnalyzer:
         .score-high {{ color: #16a34a; }}
         .score-mid {{ color: #ca8a04; }}
         .score-low {{ color: #dc2626; }}
+        .fund-link {{
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            cursor: pointer;
+        }}
+        .fund-link:hover {{
+            color: #764ba2;
+            text-decoration: underline;
+        }}
     </style>
 </head>
 <body>
@@ -526,16 +536,19 @@ class PortfolioAnalyzer:
 
             score_class = 'score-high' if h['total_score'] >= 60 else ('score-mid' if h['total_score'] >= 40 else 'score-low')
 
-            return_str = f"{h['return_pct']:+.1f}%" if h['return_pct'] else '-'
+            return_str_row = f"{h['return_pct']:+.1f}%" if h['return_pct'] else '-'
+
+            # 构建基金详情链接（查找对应的报告文件）
+            fund_code = h['fund_code']
 
             html += f'''
                     <tr>
-                        <td>{h['fund_code']}</td>
+                        <td><a class="fund-link" href="./report_{fund_code}_{report_timestamp}.html" target="_blank">{fund_code}</a></td>
                         <td>{h['fund_name'][:15]}...</td>
                         <td>{h['fund_type']}</td>
                         <td>¥{h['cost_amount']:,.0f}</td>
                         <td>{h['weight_pct']:.1f}%</td>
-                        <td>{return_str}</td>
+                        <td>{return_str_row}</td>
                         <td class="score {score_class}">{h['total_score']:.0f}</td>
                         <td><span class="badge {action_class}">{h['action']}</span></td>
                     </tr>
