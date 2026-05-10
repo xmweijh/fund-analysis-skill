@@ -267,13 +267,17 @@ class PositionAdvice(BaseModel):
 
 class SIPAdvice(BaseModel):
     """定投建议 - 新增"""
-    fund_code: str = Field(..., description="基金代码")
+    fund_code: Optional[str] = Field(None, description="基金代码")
     strategy: str = Field(..., description="策略: ma250/valuation/hybrid")
-    base_amount: float = Field(..., description="用户基础定投金额")
-    suggested_amount: float = Field(..., description="建议定投金额")
-    multiplier: float = Field(..., description="定投倍数")
     signal: str = Field(..., description="信号: 开始定投/加倍定投/正常定投/减少定投/停止定投")
+    multiplier: float = Field(..., description="定投倍数")
+    base_amount: Optional[float] = Field(None, description="用户基础定投金额")
+    suggested_amount: Optional[float] = Field(None, description="建议定投金额")
+    confidence: int = Field(default=50, description="信心度(0-100)")
+    reasons: List[str] = Field(default_factory=list, description="建议理由")
+    risks: List[str] = Field(default_factory=list, description="风险提示")
     take_profit_plan: List[Dict] = Field(default_factory=list, description="止盈计划")
+    indicators_snapshot: Optional[Dict] = Field(default_factory=dict, description="指标快照")
 
 
 class FiveDimensionScores(BaseModel):

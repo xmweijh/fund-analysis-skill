@@ -124,19 +124,19 @@ class FundAnalyzerV2:
         # 1. 获取基础数据
         logger.info(f"[v2] Step 1: 获取基础数据 {fund_code}")
         basic_info = self._safe_fetch(
-            self.data_fetcher.fetch_basic_info, fund_code, "基础信息"
+            self.data_fetcher.fetch_basic_info, fund_code, label="基础信息"
         )
         nav_history = self._safe_fetch(
-            self.data_fetcher.fetch_nav_history, fund_code, "净值历史", 365
+            self.data_fetcher.fetch_nav_history, fund_code, 365, label="净值历史"
         )
         performance = self._safe_fetch(
-            self.data_fetcher.fetch_performance, fund_code, "业绩数据"
+            self.data_fetcher.fetch_performance, fund_code, label="业绩数据"
         )
         quote = self._safe_fetch(
-            self.data_fetcher.fetch_realtime_quote, fund_code, "实时行情"
+            self.data_fetcher.fetch_realtime_quote, fund_code, label="实时行情"
         )
         manager = self._safe_fetch(
-            self.data_fetcher.fetch_manager_info, fund_code, "基金经理"
+            self.data_fetcher.fetch_manager_info, fund_code, label="基金经理"
         )
 
         # 2. 获取估值数据（指数基金）
@@ -154,6 +154,8 @@ class FundAnalyzerV2:
                 )
             except Exception as e:
                 logger.warning(f"[v2] 技术分析失败: {e}")
+        else:
+            logger.warning(f"[v2] 净值历史数据无效，跳过技术分析")
 
         # 4. 路由到合适策略
         logger.info(f"[v2] Step 4: 策略路由 {fund_code}")
@@ -504,7 +506,7 @@ class FundAnalyzerV2:
     def _generate_sip_advice(
         self,
         fund_code: str,
-        tech_result: Optional[TechnicalAnalysisResult],
+        tech_result: Optional[Any],
         valuation: Optional[ValuationData],
         base_amount: float,
         strategy: str,
@@ -520,6 +522,18 @@ class FundAnalyzerV2:
                 base_amount=base_amount,
             )
 
+            # Convert TakeProfitPlan objects to dicts
+            take_profit_plans = []
+            if hasattr(advice, 'take_profit_plans') and advice.take_profit_plans:
+                for tp in advice.take_profit_plans:
+                    if hasattr(tp, 'profit_level'):
+                        take_profit_plans.append({
+                            "profit_level": tp.profit_level,
+                            "description": tp.description,
+                        })
+                    else:
+                        take_profit_plans.append(tp)
+
             return {
                 "fund_code": fund_code,
                 "strategy": advice.strategy,
@@ -527,17 +541,11 @@ class FundAnalyzerV2:
                 "multiplier": advice.multiplier,
                 "base_amount": advice.base_amount,
                 "recommended_amount": advice.recommended_amount,
-                "confidence": advice.confidence,
-                "reasons": advice.reasons,
-                "risks": advice.risks,
-                "take_profit_plans": [
-                    {
-                        "profit_level": tp.profit_level,
-                        "description": tp.description,
-                    }
-                    for tp in advice.take_profit_plans
-                ],
-                "indicators_snapshot": advice.indicators_snapshot or {},
+                "confidence": getattr(advice, 'confidence', 50),
+                "reasons": getattr(advice, 'reasons', []),
+                "risks": getattr(advice, 'risks', []),
+                "take_profit_plans": take_profit_plans,
+                "indicators_snapshot": getattr(advice, 'indicators_snapshot', {}),
             }
         except Exception as e:
             logger.warning(f"[v2] 生成定投建议失败: {e}")
