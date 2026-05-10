@@ -289,3 +289,10 @@ class FiveDimensionScores(BaseModel):
     sentiment: float = Field(..., description="情绪面得分(0-100)", ge=0, le=100)
     total: float = Field(..., description="加权总分(0-100)", ge=0, le=100)
     weights: Dict[str, float] = Field(..., description="各维度权重")
+
+
+# 导入风险指标和情绪指标（如果 models_risk.py 存在）
+try:
+    from scripts.models_risk import RiskMetrics, SentimentMetrics
+except ImportError:
+    pass
