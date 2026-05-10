@@ -1,0 +1,27 @@
+{
+  "宽基指数": {
+    "target_pct": 15,
+    "min_pct": 8,
+    "max_pct": 20
+  },
+  "行业指数": {
+    "target_pct": 10,
+    "min_pct": 5,
+    "max_pct": 15
+  },
+  "主动混合": {
+    "target_pct": 12,
+    "min_pct": 6,
+    "max_pct": 18
+  },
+  "债券基金": {
+    "target_pct": 20,
+    "min_pct": 10,
+    "max_pct": 30
+  },
+  "货币基金": {
+    "target_pct": 5,
+    "min_pct": 0,
+    "max_pct": 10
+  }
+}
