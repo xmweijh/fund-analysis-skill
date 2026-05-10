@@ -11,6 +11,8 @@ from .strategies import (
     ActiveFundStrategy,
     StrategyRouter,
 )
+from .risk_analyzer import RiskAnalyzer
+from .sentiment_analyzer import SentimentAnalyzer
 
 __all__ = [
     "EnhancedTechnicalAnalyzer",
@@ -24,4 +26,6 @@ __all__ = [
     "IndexFundStrategy",
     "ActiveFundStrategy",
     "StrategyRouter",
+    "RiskAnalyzer",
+    "SentimentAnalyzer",
 ]
