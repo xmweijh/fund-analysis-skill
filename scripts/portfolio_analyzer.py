@@ -129,12 +129,12 @@ class PortfolioAnalyzer:
                 return_pct = (current_nav / avg_cost - 1) * 100
 
             # 根据业绩和风险评估确定建议
-            total_score, tech_score, action, risk_level = self._evaluate_fund(
+            fund_score, tech_score, action, risk_level = self._evaluate_fund(
                 performance, quote
             )
 
             # 汇总统计
-            total_score += total_score
+            total_score += fund_score
             action_dist[action] = action_dist.get(action, 0) + 1
             risk_dist[risk_level] = risk_dist.get(risk_level, 0) + cost_amount
 
@@ -150,7 +150,7 @@ class PortfolioAnalyzer:
                 min_pct=config.min_pct,
                 max_pct=config.max_pct,
                 action=action,
-                total_score=total_score,
+                total_score=fund_score,
                 tech_score=tech_score
             )
             fund_analyses.append(analysis)
@@ -328,11 +328,34 @@ class PortfolioAnalyzer:
                     "max_pct": h.max_pct,
                     "action": h.action,
                     "total_score": h.total_score,
-                    "tech_score": h.tech_score
+                    "tech_score": h.tech_score,
+                    "report_file": self._find_fund_report_file(h.fund_code)
                 }
                 for h in fund_analyses
             ]
         }
+
+    def _find_fund_report_file(self, fund_code: str) -> Optional[str]:
+        """查找基金的最新报告文件"""
+        import glob
+        import os
+
+        # 获取报告目录
+        output_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'reports',
+            datetime.now().strftime('%Y%m%d')
+        )
+
+        # 查找匹配的文件
+        pattern = os.path.join(output_dir, f"report_{fund_code}_*.html")
+        files = glob.glob(pattern)
+
+        if files:
+            # 按修改时间排序，返回最新的
+            files.sort(key=os.path.getmtime, reverse=True)
+            return os.path.basename(files[0])
+        return None
 
     def _generate_html(self, data: Dict[str, Any], report_timestamp: str) -> str:
         """生成HTML报告"""
@@ -538,12 +561,14 @@ class PortfolioAnalyzer:
 
             return_str_row = f"{h['return_pct']:+.1f}%" if h['return_pct'] else '-'
 
-            # 构建基金详情链接（查找对应的报告文件）
+            # 构建基金详情链接（使用查找的报告文件）
             fund_code = h['fund_code']
+            report_file = h.get('report_file')
+            report_link = f"./{report_file}" if report_file else f"./report_{fund_code}_latest.html"
 
             html += f'''
                     <tr>
-                        <td><a class="fund-link" href="./report_{fund_code}_{report_timestamp}.html" target="_blank">{fund_code}</a></td>
+                        <td><a class="fund-link" href="{report_link}" target="_blank">{fund_code}</a></td>
                         <td>{h['fund_name'][:15]}...</td>
                         <td>{h['fund_type']}</td>
                         <td>¥{h['cost_amount']:,.0f}</td>
