@@ -8,6 +8,7 @@ from typing import List, Optional
 from enum import Enum
 
 from scripts.models import EnhancedTechnicalIndicators, ValuationData
+from scripts.models_risk import RiskMetrics
 from scripts.logger import logger
 
 
@@ -56,24 +57,32 @@ class SIPAdvisor:
         (80, "PE > 80%分位"),
     ]
 
+    # 回撤定投法的止盈计划
+    DRAWDOWN_TAKE_PROFIT_LEVELS = [
+        (15, "净值反弹+15%"),
+        (25, "净值反弹+25%"),
+        (40, "净值反弹+40%"),
+    ]
+
     def get_advice(
         self,
         strategy: str,
         technical: Optional[EnhancedTechnicalIndicators] = None,
         valuation: Optional[ValuationData] = None,
         base_amount: Optional[float] = None,
+        risk_metrics: Optional[RiskMetrics] = None,
+        current_drawdown_pct: Optional[float] = None,
     ) -> SIPAdvice:
         """
-        获取定投建议
+        获取定投建议（扩展版，支持回撤策略）
 
         Args:
-            strategy: 策略 ("ma250", "valuation", "hybrid")
-            technical: 增强技术指标 (ma250/hybrid 策略需要)
-            valuation: 估值数据 (valuation/hybrid 策略需要)
+            strategy: 策略 ("ma250", "valuation", "hybrid", "drawdown")
+            technical: 增强技术指标
+            valuation: 估值数据
             base_amount: 基础定投金额
-
-        Returns:
-            SIPAdvice: 定投建议
+            risk_metrics: 风险指标（回撤策略需要）
+            current_drawdown_pct: 当前回撤百分比（回撤策略需要）
         """
         strategy_lower = strategy.lower()
 
@@ -94,6 +103,11 @@ class SIPAdvisor:
                     return self._make_default_advice("hybrid", base_amount)
                 return self._get_ma250_advice(technical, base_amount)
             return self._get_hybrid_advice(technical, valuation, base_amount)
+        elif strategy_lower == "drawdown":
+            if current_drawdown_pct is None:
+                logger.warning("drawdown 策略需要当前回撤数据")
+                return self._make_default_advice("drawdown", base_amount)
+            return self._get_drawdown_advice(current_drawdown_pct, risk_metrics, base_amount)
         else:
             logger.error(f"未知策略: {strategy}")
             return self._make_default_advice(strategy_lower, base_amount)
@@ -364,6 +378,103 @@ class SIPAdvisor:
                 "bias_ma250": technical.bias_ma250,
             },
         )
+
+    # ================================================================== #
+    #  回撤定投法 (Drawdown)                                             #
+    # ================================================================== #
+
+    def _get_drawdown_advice(
+        self,
+        current_drawdown_pct: float,
+        risk_metrics: Optional[RiskMetrics],
+        base_amount: Optional[float] = None,
+    ) -> SIPAdvice:
+        """
+        回撤定投法
+
+        逻辑：
+        - 回撤 > 20%: 加倍定投 (2x)
+        - 回撤 10-20%: 开始定投 (1.5x)
+        - 回撤 5-10%: 正常定投 (1x)
+        - 回撤 < 5%: 正常定投 (1x)
+        """
+        # 取绝对值确保回撤为正
+        drawdown = abs(current_drawdown_pct)
+
+        # 根据回撤幅度确定倍数
+        if drawdown > 20:
+            multiplier = 2.0
+            signal = "加倍定投"
+            confidence = 90
+        elif drawdown > 10:
+            multiplier = 1.5
+            signal = "开始定投"
+            confidence = 85
+        elif drawdown > 5:
+            multiplier = 1.0
+            signal = "正常定投"
+            confidence = 75
+        else:
+            multiplier = 1.0
+            signal = "正常定投"
+            confidence = 70
+
+        # 构建理由
+        reasons = [
+            f"当前回撤: {drawdown:.1f}%",
+            self._interpret_drawdown(drawdown),
+        ]
+
+        # 如果有风险指标，添加更多信息
+        if risk_metrics:
+            if risk_metrics.calmar_ratio:
+                reasons.append(f"卡玛比率: {risk_metrics.calmar_ratio:.2f}")
+            if risk_metrics.max_drawdown_duration:
+                reasons.append(f"历史最大回撤持续: {risk_metrics.max_drawdown_duration}天")
+
+        # 风险提示
+        risks = []
+        if drawdown < 5:
+            risks.append("当前回撤较小，可能不是最佳定投时机")
+        if risk_metrics and risk_metrics.calmar_ratio and risk_metrics.calmar_ratio < 0.5:
+            risks.append("基金风险收益比不佳，需谨慎")
+
+        # 止盈计划
+        take_profit_plans = [
+            TakeProfitPlan(profit_level=f"+{level}%", description=desc)
+            for level, desc in self.DRAWDOWN_TAKE_PROFIT_LEVELS
+        ]
+
+        recommended_amount = None
+        if base_amount is not None:
+            recommended_amount = base_amount * multiplier
+
+        return SIPAdvice(
+            strategy="drawdown",
+            signal=signal,
+            multiplier=multiplier,
+            base_amount=base_amount,
+            recommended_amount=recommended_amount,
+            confidence=confidence,
+            reasons=reasons,
+            risks=risks,
+            take_profit_plans=take_profit_plans,
+            indicators_snapshot={
+                "current_drawdown_pct": drawdown,
+                "calmar_ratio": risk_metrics.calmar_ratio if risk_metrics else None,
+            },
+        )
+
+    def _interpret_drawdown(self, drawdown: float) -> str:
+        """解释回撤程度"""
+        if drawdown > 20:
+            return "深度回撤，具备较好的定投机会"
+        elif drawdown > 10:
+            return "中度回撤，可以开始定投布局"
+        elif drawdown > 5:
+            return "轻度回撤，正常定投即可"
+        else:
+            return "回撤较小，等待更好时机"
 
     # ================================================================== #
     #  辅助方法                                                         #
