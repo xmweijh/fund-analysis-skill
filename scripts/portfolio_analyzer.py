@@ -19,6 +19,7 @@ from scripts.portfolio_manager import PortfolioManager
 from scripts.position_config_manager import PositionConfigManager
 from scripts.data_fetcher import DanjuanDataFetcher
 from scripts.logger import logger
+from scripts.fund_analyzer_v2 import FundAnalyzerV2
 
 
 @dataclass
@@ -37,6 +38,8 @@ class FundHoldingAnalysis:
     action: str
     total_score: float
     tech_score: float
+    v2_score: Optional[float] = None  # V2五维评分
+    dimensions: Optional[Dict[str, Any]] = None  # 五维详情
 
 
 @dataclass
@@ -59,6 +62,7 @@ class PortfolioAnalyzer:
         self.portfolio = PortfolioManager()
         self.data_fetcher = DanjuanDataFetcher()
         self.position_manager = PositionConfigManager()
+        self.v2_analyzer = FundAnalyzerV2()
 
     def analyze_all(self) -> Tuple[List[FundHoldingAnalysis], PortfolioSummary]:
         """
@@ -97,9 +101,6 @@ class PortfolioAnalyzer:
             quote = self._safe_fetch(
                 self.data_fetcher.fetch_realtime_quote, fund_code
             )
-            performance = self._safe_fetch(
-                self.data_fetcher.fetch_performance, fund_code
-            )
 
             fund_name = basic_info.fund_name if basic_info else fund_code
             fund_type_str = basic_info.fund_type if basic_info else "未知"
@@ -128,12 +129,15 @@ class PortfolioAnalyzer:
                 total_value += current_value
                 return_pct = (current_nav / avg_cost - 1) * 100
 
-            # 根据业绩和风险评估确定建议
-            fund_score, tech_score, action, risk_level = self._evaluate_fund(
-                performance, quote
-            )
+            # 使用 FundAnalyzerV2 进行完整分析
+            v2_result = self._analyze_with_v2(fund_code)
 
-            # 汇总统计
+            # 汇总统计（使用V2评分）
+            fund_score = v2_result['total_score']
+            tech_score = v2_result['tech_score']
+            action = v2_result['action']
+            risk_level = v2_result['risk_level']
+
             total_score += fund_score
             action_dist[action] = action_dist.get(action, 0) + 1
             risk_dist[risk_level] = risk_dist.get(risk_level, 0) + cost_amount
@@ -151,7 +155,9 @@ class PortfolioAnalyzer:
                 max_pct=config.max_pct,
                 action=action,
                 total_score=fund_score,
-                tech_score=tech_score
+                tech_score=tech_score,
+                v2_score=fund_score,
+                dimensions=v2_result.get('dimensions')
             )
             fund_analyses.append(analysis)
 
@@ -178,6 +184,84 @@ class PortfolioAnalyzer:
         logger.info(f"组合分析完成: {summary.fund_count}只基金, 总成本{summary.total_cost:.0f}元")
         return fund_analyses, summary
 
+    def _analyze_with_v2(self, fund_code: str) -> Dict[str, Any]:
+        """
+        使用 FundAnalyzerV2 进行完整分析，从生成的JSON报告读取结果
+        """
+        try:
+            # 运行分析生成报告
+            html_path, json_path = self.v2_analyzer.analyze(fund_code)
+
+            # 从JSON报告读取结果
+            if os.path.exists(json_path):
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    result = json.load(f)
+
+                scores = result.get('scores', {})
+                action = result.get('action', '持有')
+                position_advice = result.get('position_advice', {})
+
+                # 提取五维评分
+                total_score = scores.get('total', 50.0)
+                tech_score = scores.get('technical', 50.0)
+                dimensions = {
+                    'technical': scores.get('technical', 50.0),
+                    'fundamental': scores.get('fundamental', 50.0),
+                    'valuation': scores.get('valuation', 50.0),
+                    'capital_flow': scores.get('capital_flow', 50.0),
+                    'sentiment': scores.get('sentiment', 50.0),
+                }
+
+                # 获取操作建议
+                if not action:
+                    action = position_advice.get('action', '持有')
+                if not action:
+                    action = self._score_to_action(total_score)
+
+                # 获取风险等级（根据评分计算）
+                risk_level = self._score_to_risk(total_score)
+
+                return {
+                    'total_score': total_score,
+                    'tech_score': tech_score,
+                    'action': action,
+                    'risk_level': risk_level,
+                    'dimensions': dimensions
+                }
+            else:
+                logger.warning(f"JSON报告不存在: {json_path}")
+                raise FileNotFoundError(f"Report not found: {json_path}")
+
+        except Exception as e:
+            logger.warning(f"V2分析失败 {fund_code}: {e}，使用默认评分")
+            return {
+                'total_score': 50.0,
+                'tech_score': 50.0,
+                'action': '持有',
+                'risk_level': '中风险',
+                'dimensions': {}
+            }
+
+    def _score_to_action(self, score: float) -> str:
+        """根据评分确定操作建议"""
+        if score >= 70:
+            return "加仓"
+        elif score >= 55:
+            return "持有"
+        elif score >= 40:
+            return "观望"
+        else:
+            return "减仓"
+
+    def _score_to_risk(self, score: float) -> str:
+        """根据评分确定风险等级"""
+        if score >= 60:
+            return "低风险"
+        elif score >= 40:
+            return "中风险"
+        else:
+            return "高风险"
+
     def _classify_fund_type(self, fund_type_str: Optional[str]) -> str:
         """分类基金类型"""
         if not fund_type_str:
@@ -194,67 +278,6 @@ class PortfolioAnalyzer:
             return "主动混合"
         else:
             return "宽基指数"
-
-    def _evaluate_fund(self, performance: Any, quote: Any) -> Tuple[float, float, str, str]:
-        """
-        评估基金，返回评分和建议
-        Returns: (total_score, tech_score, action, risk_level)
-        """
-        score = 50.0
-        tech_score = 50.0
-
-        # 基于涨跌幅计算技术评分
-        if quote and hasattr(quote, 'change_pct') and quote.change_pct is not None:
-            cp = quote.change_pct
-            if cp > 3:
-                tech_score += 20
-            elif cp > 1:
-                tech_score += 10
-            elif cp < -3:
-                tech_score -= 20
-            elif cp < -1:
-                tech_score -= 10
-
-        # 基于业绩计算基本面评分
-        if performance:
-            if hasattr(performance, 'return_1y') and performance.return_1y is not None:
-                r1y = performance.return_1y
-                if r1y > 20:
-                    score += 15
-                elif r1y > 10:
-                    score += 10
-                elif r1y < -10:
-                    score -= 10
-
-            if hasattr(performance, 'max_drawdown') and performance.max_drawdown is not None:
-                mdd = abs(performance.max_drawdown)
-                if mdd < 15:
-                    score += 10
-                elif mdd > 30:
-                    score -= 10
-
-        score = max(0, min(100, score))
-        tech_score = max(0, min(100, tech_score))
-
-        # 确定操作建议
-        if score >= 70:
-            action = "加仓"
-        elif score >= 55:
-            action = "持有"
-        elif score >= 40:
-            action = "观望"
-        else:
-            action = "减仓"
-
-        # 确定风险等级
-        if score >= 60:
-            risk = "低风险"
-        elif score >= 40:
-            risk = "中风险"
-        else:
-            risk = "高风险"
-
-        return score, tech_score, action, risk
 
     def _safe_fetch(self, func, *args) -> Any:
         """安全获取数据"""
@@ -329,6 +352,7 @@ class PortfolioAnalyzer:
                     "action": h.action,
                     "total_score": h.total_score,
                     "tech_score": h.tech_score,
+                    "dimensions": h.dimensions,
                     "report_file": self._find_fund_report_file(h.fund_code)
                 }
                 for h in fund_analyses
@@ -489,6 +513,19 @@ class PortfolioAnalyzer:
             color: #764ba2;
             text-decoration: underline;
         }}
+        .dimension-bar {{
+            display: flex;
+            height: 4px;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 4px;
+        }}
+        .dimension-bar > div {{ height: 100%; }}
+        .dim-tech {{ background: #667eea; }}
+        .dim-fund {{ background: #764ba2; }}
+        .dim-val {{ background: #f093fb; }}
+        .dim-cap {{ background: #f5576c; }}
+        .dim-sen {{ background: #4facfe; }}
     </style>
 </head>
 <body>
@@ -574,7 +611,7 @@ class PortfolioAnalyzer:
                         <td>¥{h['cost_amount']:,.0f}</td>
                         <td>{h['weight_pct']:.1f}%</td>
                         <td>{return_str_row}</td>
-                        <td class="score {score_class}">{h['total_score']:.0f}</td>
+                        <td class="score {score_class}">{h['total_score']:.1f}</td>
                         <td><span class="badge {action_class}">{h['action']}</span></td>
                     </tr>
 '''

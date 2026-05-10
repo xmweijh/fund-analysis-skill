@@ -188,7 +188,7 @@ class FundAnalyzerV2:
         if strategy:
             try:
                 tech_score = float(tech_result.buy_signal_score) if tech_result else 50.0
-                valuation_score = self._calc_valuation_score(valuation)
+                valuation_score = self._calc_valuation_score(valuation, performance)
                 fundamental_score = self._calc_fundamental_score(performance, manager, risk_metrics)
                 capital_flow_score = self._calc_capital_flow_score(basic_info, quote)
 
@@ -308,22 +308,49 @@ class FundAnalyzerV2:
     #  辅助：评分计算                                                     #
     # ================================================================== #
 
-    def _calc_valuation_score(self, valuation: Optional[ValuationData]) -> float:
+    def _calc_valuation_score(
+        self,
+        valuation: Optional[ValuationData],
+        performance: Optional[Any] = None
+    ) -> float:
         """
         根据估值数据计算估值面评分 (0-100)。
         主要依据 PE 百分位：百分位越低，得分越高。
+        对于主动基金，若无法获取估值，则基于业绩数据估算。
         """
-        if valuation is None:
-            return 50.0  # 无数据时返回中性分
+        # 如果能获取估值数据，优先使用
+        if valuation is not None and valuation.pe_percentile is not None:
+            pe_pct = valuation.pe_percentile
+            # PE百分位 -> 估值评分（反向映射）
+            score = 100.0 - pe_pct
+            return max(0.0, min(100.0, score))
 
-        pe_pct = valuation.pe_percentile
-        if pe_pct is None:
-            return 50.0
+        # 无法获取估值时，基于业绩数据估算（适用于主动基金）
+        if performance is not None:
+            score = 50.0
+            # 基于1年收益率评估
+            if hasattr(performance, 'return_1y') and performance.return_1y is not None:
+                r1y = performance.return_1y
+                if r1y > 30:
+                    score += 20  # 大涨后可能高估
+                elif r1y > 15:
+                    score += 10
+                elif r1y < -20:
+                    score -= 20  # 大跌后可能低估
+                elif r1y < -10:
+                    score -= 10
 
-        # PE百分位 -> 估值评分（反向映射）
-        # pe_pct=10 -> score=90, pe_pct=50 -> score=50, pe_pct=90 -> score=10
-        score = 100.0 - pe_pct
-        return max(0.0, min(100.0, score))
+            # 基于同类排名评估
+            if hasattr(performance, 'rank_percentile') and performance.rank_percentile is not None:
+                rank = performance.rank_percentile
+                if rank > 80:
+                    score += 10  # 排名靠前，可能合理估值
+                elif rank < 30:
+                    score -= 10  # 排名靠后，可能高估
+
+            return max(0.0, min(100.0, score))
+
+        return 50.0  # 无数据时返回中性分
 
     def _calc_fundamental_score(
         self,
@@ -477,7 +504,11 @@ class FundAnalyzerV2:
                 "target_pct": 10.0,
                 "min_pct": 5.0,
                 "max_pct": 20.0,
+                "current_pct": 0.0,
             }
+
+        # 计算当前持仓占比
+        current_pct = self._get_current_position_pct(fund_code)
 
         # 根据评分确定操作建议
         total_score = scores.total if scores else 50.0
@@ -504,15 +535,20 @@ class FundAnalyzerV2:
         min_amount = total_assets * config.min_pct / 100 if total_assets else None
         max_amount = total_assets * config.max_pct / 100 if total_assets else None
 
+        # 计算偏离度
+        deviation_pct = current_pct - config.target_pct if current_pct else 0
+
         return {
             "fund_code": fund_code,
             "fund_type": fund_type,
             "action": action,
             "urgency": urgency,
             "reason": reason,
+            "current_pct": round(current_pct, 2) if current_pct else 0.0,
             "target_pct": config.target_pct,
             "min_pct": config.min_pct,
             "max_pct": config.max_pct,
+            "deviation_pct": round(deviation_pct, 2),
             "target_amount": target_amount,
             "min_amount": min_amount,
             "max_amount": max_amount,
@@ -537,6 +573,34 @@ class FundAnalyzerV2:
                 has_amount = True
 
         return total if has_amount else None
+
+    def _get_current_position_pct(self, fund_code: str) -> Optional[float]:
+        """
+        获取指定基金的当前持仓占比。
+        返回该基金占总投资金额的比例。
+        """
+        try:
+            # 获取所有持仓
+            entries = self.portfolio.list_all()
+            if not entries:
+                return None
+
+            # 计算总成本
+            total_cost = 0.0
+            target_cost = 0.0
+            for entry in entries:
+                if entry.cost_amount:
+                    total_cost += entry.cost_amount
+                    if entry.fund_code == fund_code:
+                        target_cost += entry.cost_amount
+
+            if total_cost > 0 and target_cost > 0:
+                return (target_cost / total_cost) * 100
+            return None
+        except Exception as e:
+            logger.debug(f"[v2] 获取当前仓位占比失败: {e}")
+            return None
+
 
     # ================================================================== #
     #  辅助：定投建议                                                     #
@@ -707,6 +771,18 @@ class FundAnalyzerV2:
         # ── 业绩数据 ────────────────────────────────────────────────
         performance_dict: Optional[Dict[str, Any]] = None
         if performance:
+            # 处理逐年业绩
+            yearly_data = []
+            if hasattr(performance, "yearly_performance") and performance.yearly_performance:
+                for yp in performance.yearly_performance:
+                    yearly_data.append({
+                        "year": getattr(yp, "year", None),
+                        "return_pct": getattr(yp, "return_pct", None),
+                        "benchmark_return": getattr(yp, "benchmark_return", None),
+                        "excess_return": getattr(yp, "excess_return", None),
+                        "rank_percentile": getattr(yp, "rank_percentile", None),
+                    })
+
             performance_dict = {
                 "return_1m": getattr(performance, "return_1m", None),
                 "return_3m": getattr(performance, "return_3m", None),
@@ -716,17 +792,59 @@ class FundAnalyzerV2:
                 "annualized_return": getattr(performance, "annualized_return", None),
                 "max_drawdown": getattr(performance, "max_drawdown", None),
                 "rank_percentile": getattr(performance, "rank_percentile", None),
+                "yearly_performance": yearly_data,
             }
 
         # ── 基金经理 ────────────────────────────────────────────────
         manager_dict: Optional[Dict[str, Any]] = None
         if manager:
+            # 计算基金经理评分
+            manager_score = 50.0
+            manager_tags = []
+
+            experience = getattr(manager, "experience_years", 0) or 0
+            manage_years = getattr(manager, "manage_years", 0) or 0
+            avg_return = getattr(manager, "avg_return", 0) or 0
+
+            # 经验评分
+            if experience >= 10:
+                manager_score += 15
+                manager_tags.append("资深基金经理")
+            elif experience >= 5:
+                manager_score += 10
+                manager_tags.append("经验丰富")
+            elif experience >= 3:
+                manager_score += 5
+
+            # 管理本基金年限
+            if manage_years >= 5:
+                manager_score += 10
+                manager_tags.append("长期管理")
+            elif manage_years >= 3:
+                manager_score += 5
+                manager_tags.append("管理稳定")
+
+            # 业绩表现
+            if avg_return > 30:
+                manager_score += 15
+                manager_tags.append("业绩优秀")
+            elif avg_return > 15:
+                manager_score += 10
+                manager_tags.append("业绩良好")
+            elif avg_return > 0:
+                manager_score += 5
+
+            manager_score = min(100, manager_score)
+
             manager_dict = {
                 "manager_name": getattr(manager, "manager_name", None),
-                "experience_years": getattr(manager, "experience_years", None),
-                "manage_years": getattr(manager, "manage_years", None),
-                "avg_return": getattr(manager, "avg_return", None),
+                "experience_years": experience,
+                "manage_years": manage_years,
+                "avg_return": avg_return,
                 "is_senior": getattr(manager, "is_senior", False),
+                "score": manager_score,
+                "tags": manager_tags,
+                "assessment": "优秀" if manager_score >= 80 else "良好" if manager_score >= 60 else "一般",
             }
 
         # ── 风险指标 ────────────────────────────────────────────────

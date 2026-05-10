@@ -402,6 +402,62 @@ function buildSIPPanel(sip) {{
     '</div></div>';
 }}
 
+
+
+/** 基金经理面板 */
+function buildManagerPanel(mgr) {{
+  if (!mgr) return '';
+
+  const tags = (mgr.tags || []).map(function(t) {{
+    return '<span class="signal-pill">' + esc(t) + '</span>';
+  }}).join('');
+
+  return '<div class="panel">' +
+    '<div class="panel-header open"><span class="panel-title">基金经理</span><span class="panel-icon">▼</span></div>' +
+    '<div class="panel-body open">' +
+    '<div class="kv-list">' +
+    '<span class="kv-key">姓名</span><span class="kv-val">' + esc(mgr.manager_name || '–') + '</span>' +
+    '<span class="kv-key">从业年限</span><span class="kv-val">' + (mgr.experience_years || '–') + ' 年</span>' +
+    '<span class="kv-key">管理本基金</span><span class="kv-val">' + (mgr.manage_years || '–') + ' 年</span>' +
+    '<span class="kv-key">平均年化</span><span class="kv-val">' + (mgr.avg_return !== undefined ? fmt2(mgr.avg_return) + '%' : '–') + '</span>' +
+    '<span class="kv-key">综合评分</span><span class="kv-val ' + scoreClass(mgr.score) + '>' + (mgr.score !== undefined ? Number(mgr.score).toFixed(1) : '–') + '</span>' +
+    '<span class="kv-key">评价</span><span class="kv-val">' + esc(mgr.assessment || '–') + '</span>' +
+    '</div>' +
+    (tags ? '<div class="signal-list" style="margin-top:12px;">' + tags + '</div>' : '') +
+    '</div></div>';
+}}
+
+/** 年度业绩面板 */
+function buildYearlyPerformancePanel(perf) {{
+  if (!perf || !perf.yearly_performance || perf.yearly_performance.length === 0) return '';
+
+  const rows = perf.yearly_performance.map(function(y) {{
+    const ret = y.return_pct;
+    const bench = y.benchmark_return;
+    const excess = y.excess_return;
+    const rank = y.rank_percentile;
+
+    let retClass = 'neutral';
+    if (ret > 10) retClass = 'positive';
+    else if (ret < -10) retClass = 'negative';
+
+    return '<tr>' +
+      '<td>' + esc(y.year) + '</td>' +
+      '<td class="' + retClass + '">' + (ret !== undefined ? fmtSign(ret) + '%' : '–') + '</td>' +
+      '<td>' + (bench !== undefined ? fmtSign(bench) + '%' : '–') + '</td>' +
+      '<td class="' + (excess > 0 ? 'positive' : excess < 0 ? 'negative' : '') + '">' + (excess !== undefined ? fmtSign(excess) + '%' : '–') + '</td>' +
+      '<td>' + (rank !== undefined ? fmt2(rank) + '%' : '–') + '</td>' +
+      '</tr>';
+  }}).join('');
+
+  return '<div class="panel">' +
+    '<div class="panel-header open"><span class="panel-title">历年业绩</span><span class="panel-icon">▼</span></div>' +
+    '<div class="panel-body open">' +
+    '<table class="data-table"><thead><tr><th>年份</th><th>基金收益</th><th>基准收益</th><th>超额收益</th><th>同类排名</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    '</div></div>';
+}}
+
+
 /** 估值面板 */
 function buildValuationPanel(val) {{
   if (!val) return '';
@@ -477,6 +533,12 @@ function render(d) {{
 
   // 五维评分明细
   html += buildScoresPanel(d.scores);
+
+  // 历年业绩
+  html += buildYearlyPerformancePanel(d.performance);
+
+  // 基金经理
+  html += buildManagerPanel(d.manager);
 
   // 技术面
   html += buildTechnicalPanel(d.technical);
