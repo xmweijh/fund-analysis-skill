@@ -23,10 +23,13 @@ class PortfolioEntry:
         self,
         fund_code: str,
         fund_name: Optional[str] = None,
-        shares: Optional[float] = None,        # 持有份额
-        cost_nav: Optional[float] = None,      # 买入净值(成本价)
-        cost_amount: Optional[float] = None,   # 买入金额
-        note: Optional[str] = None,            # 备注
+        shares: Optional[float] = None,           # 持有份额
+        cost_nav: Optional[float] = None,         # 买入净值(成本价)
+        cost_amount: Optional[float] = None,      # 买入金额
+        note: Optional[str] = None,               # 备注
+        current_nav: Optional[float] = None,      # 当前净值(分析时更新)
+        current_profit: Optional[float] = None,   # 浮动盈亏(分析时更新)
+        current_return_rate: Optional[float] = None,  # 收益率%(分析时更新)
         added_at: Optional[str] = None,
         updated_at: Optional[str] = None,
     ):
@@ -36,6 +39,9 @@ class PortfolioEntry:
         self.cost_nav = cost_nav
         self.cost_amount = cost_amount
         self.note = note
+        self.current_nav = current_nav
+        self.current_profit = current_profit
+        self.current_return_rate = current_return_rate
         self.added_at = added_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.updated_at = updated_at or self.added_at
 
@@ -47,6 +53,9 @@ class PortfolioEntry:
             "cost_nav": self.cost_nav,
             "cost_amount": self.cost_amount,
             "note": self.note,
+            "current_nav": self.current_nav,
+            "current_profit": self.current_profit,
+            "current_return_rate": self.current_return_rate,
             "added_at": self.added_at,
             "updated_at": self.updated_at,
         }
@@ -60,6 +69,9 @@ class PortfolioEntry:
             cost_nav=d.get("cost_nav"),
             cost_amount=d.get("cost_amount"),
             note=d.get("note"),
+            current_nav=d.get("current_nav"),
+            current_profit=d.get("current_profit"),
+            current_return_rate=d.get("current_return_rate"),
             added_at=d.get("added_at"),
             updated_at=d.get("updated_at"),
         )
@@ -150,6 +162,9 @@ class PortfolioManager:
         cost_nav: Optional[float] = None,
         cost_amount: Optional[float] = None,
         note: Optional[str] = None,
+        current_nav: Optional[float] = None,
+        current_profit: Optional[float] = None,
+        current_return_rate: Optional[float] = None,
     ) -> PortfolioEntry:
         """
         更新已有持仓（只更新非 None 的字段）。
@@ -175,6 +190,12 @@ class PortfolioManager:
             entry.cost_amount = cost_amount
         if note is not None:
             entry.note = note
+        if current_nav is not None:
+            entry.current_nav = current_nav
+        if current_profit is not None:
+            entry.current_profit = current_profit
+        if current_return_rate is not None:
+            entry.current_return_rate = current_return_rate
         entry.updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self._save()
         logger.info(f"更新持仓: {fund_code}")
@@ -215,18 +236,24 @@ class PortfolioManager:
             return "> 📭 当前持仓列表为空，请先使用「添加持仓」指令录入基金。"
 
         lines = [
-            "| # | 基金代码 | 基金名称 | 持有份额 | 买入净值 | 买入金额 | 备注 | 添加时间 |",
-            "|---|---------|---------|---------|---------|---------|------|---------|",
+            "| # | 基金代码 | 基金名称 | 持有份额 | 买入净值 | 买入金额 | 当前净值 | 浮动盈亏 | 收益率 | 备注 | 添加时间 |",
+            "|---|---------|---------|---------|---------|---------|---------|---------|------|------|---------|",
         ]
         for i, entry in enumerate(self.list_all(), 1):
+            current_nav_str = f"{entry.current_nav:.4f}" if entry.current_nav else "—"
+            profit_str = f"{entry.current_profit:+.2f}元" if entry.current_profit is not None else "—"
+            return_str = f"{entry.current_return_rate:+.2f}%" if entry.current_return_rate is not None else "—"
             lines.append(
-                "| {i} | `{code}` | {name} | {shares} | {nav} | {amount} | {note} | {at} |".format(
+                "| {i} | `{code}` | {name} | {shares} | {nav} | {amount} | {cur_nav} | {profit} | {ret} | {note} | {at} |".format(
                     i=i,
                     code=entry.fund_code,
                     name=entry.fund_name or "—",
                     shares=f"{entry.shares:.2f}" if entry.shares else "—",
                     nav=f"{entry.cost_nav:.4f}" if entry.cost_nav else "—",
                     amount=f"{entry.cost_amount:.2f}元" if entry.cost_amount else "—",
+                    cur_nav=current_nav_str,
+                    profit=profit_str,
+                    ret=return_str,
                     note=entry.note or "—",
                     at=entry.added_at[:10],
                 )

@@ -185,7 +185,22 @@ class FundAnalyzer:
                     "nav_time": None,
                     "conclusion": str(e)[:30],
                     "return_1y": None,
+                    "current_nav": None,
+                    "current_profit": None,
+                    "current_return_rate": None,
                 })
+
+        # ── 持久化：将当前净值和盈亏写回持仓记录 ─────────────────
+        for meta in meta_list:
+            code = meta["code"]
+            if code in failed:
+                continue
+            self.portfolio.update(
+                fund_code=code,
+                current_nav=meta.get("current_nav"),
+                current_profit=meta.get("current_profit"),
+                current_return_rate=meta.get("current_return_rate"),
+            )
 
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
@@ -241,6 +256,9 @@ class FundAnalyzer:
             "nav_time": None,
             "conclusion": "—",
             "return_1y": None,
+            "current_nav": None,
+            "current_profit": None,
+            "current_return_rate": None,
         }
 
         # 基金名称（从报告标题提取，比持仓记录更准确）
@@ -282,6 +300,31 @@ class FundAnalyzer:
         if m:
             meta["nav_time"] = m.group(1).strip()
 
+        # ── 计算浮动盈亏 ──────────────────────────────────
+        current_nav_str = meta.get("nav")
+        current_nav_val = None
+        if current_nav_str and current_nav_str != "—":
+            try:
+                current_nav_val = float(current_nav_str)
+            except ValueError:
+                pass
+
+        cost_amount = entry.cost_amount
+        cost_nav = entry.cost_nav
+
+        if current_nav_val is not None and cost_amount is not None and cost_amount > 0:
+            if cost_nav is not None and cost_nav > 0:
+                shares = cost_amount / cost_nav
+                current_value = shares * current_nav_val
+                profit = current_value - cost_amount
+                return_rate = (current_nav_val - cost_nav) / cost_nav * 100
+                meta["current_nav"] = current_nav_val
+                meta["current_profit"] = round(profit, 2)
+                meta["current_return_rate"] = round(return_rate, 2)
+            else:
+                meta["current_nav"] = current_nav_val
+                # 无成本净值，无法计算盈亏
+
         return meta
 
     @staticmethod
@@ -296,14 +339,18 @@ class FundAnalyzer:
         lines = [
             "## 🗂 持仓总结",
             "",
-            "| # | 基金 | 代码 | 操作建议 | 日涨跌幅 | 当前净值 | 近1年收益 | 核心结论 |",
-            "|---|------|------|---------|---------|---------|---------|---------|",
+            "| # | 基金 | 代码 | 操作建议 | 日涨跌幅 | 当前净值 | 持仓收益 | 收益率 | 近1年收益 | 核心结论 |",
+            "|---|------|------|---------|---------|---------|---------|------|---------|---------|",
         ]
         for i, m in enumerate(meta_list, 1):
             emoji = _ACTION_EMOJI.get(m["action"], "")
             action_str = f"{emoji} {m['action']}" if emoji else m["action"]
             change = m["change_pct"] or "—"
             nav = m["nav"] or "—"
+            profit = m.get("current_profit")
+            profit_str = f"{profit:+.2f}" if profit is not None else "—"
+            return_rate = m.get("current_return_rate")
+            return_rate_str = f"{return_rate:+.2f}%" if return_rate is not None else "—"
             ret1y = m["return_1y"] or "—"
             conclusion = m["conclusion"]
             # 截断过长的结论
@@ -313,7 +360,7 @@ class FundAnalyzer:
             name_link = f"[{m['name']}]({anchor})"
             lines.append(
                 f"| {i} | {name_link} | `{m['code']}` | {action_str} "
-                f"| {change} | {nav} | {ret1y} | {conclusion} |"
+                f"| {change} | {nav} | {profit_str} | {return_rate_str} | {ret1y} | {conclusion} |"
             )
         lines.append("")
 

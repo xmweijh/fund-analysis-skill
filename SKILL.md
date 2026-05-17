@@ -134,7 +134,7 @@ print(report)
 操作:
   report = analyzer.portfolio_analyze_all()
 响应: 展示组合分析报告，报告结构：
-  1. 持仓总结摘要表（操作建议、涨跌幅、净值、近1年收益、核心结论一览）
+  1. 持仓总结摘要表（操作建议、涨跌幅、净值、持仓收益、收益率、近1年收益、核心结论一览）
   2. 目录（可点击跳转到每只基金的详细章节）
   3. 持仓列表（成本等基础信息）
   4. 各基金详细分析报告（含 HTML 锚点，支持目录跳转）
@@ -143,7 +143,7 @@ print(report)
 ### 📁 持仓数据存储
 
 - **文件位置**: `data/portfolio.json`
-- **格式**: JSON 数组，每条记录包含 `fund_code`、`fund_name`、`shares`、`cost_nav`、`cost_amount`、`note`、`added_at`、`updated_at`
+- **格式**: JSON 数组，每条记录包含 `fund_code`、`fund_name`、`shares`、`cost_nav`、`cost_amount`、`note`、`current_nav`、`current_profit`、`current_return_rate`、`added_at`、`updated_at`
 - **持久化**: 每次增删改操作后自动保存，跨会话保留
 - **示例**:
 ```json
@@ -155,6 +155,9 @@ print(report)
     "cost_nav": 1.52,
     "cost_amount": 152000.0,
     "note": "长期持有",
+    "current_nav": 1.4850,
+    "current_profit": -3500.00,
+    "current_return_rate": -2.30,
     "added_at": "2026-03-07 15:00:00",
     "updated_at": "2026-03-07 16:30:00"
   }
