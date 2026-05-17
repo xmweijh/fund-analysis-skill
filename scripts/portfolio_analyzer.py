@@ -28,7 +28,7 @@ class FundHoldingAnalysis:
     fund_code: str
     fund_name: str
     fund_type: str
-    cost_amount: float
+    cost_amount: Optional[float]
     current_nav: Optional[float]
     current_value: Optional[float]
     return_pct: Optional[float]
@@ -40,6 +40,8 @@ class FundHoldingAnalysis:
     tech_score: float
     v2_score: Optional[float] = None  # V2五维评分
     dimensions: Optional[Dict[str, Any]] = None  # 五维详情
+    stored_profit: Optional[float] = None        # 持仓盈亏（来自portfolio.json）
+    stored_return_rate: Optional[float] = None   # 持仓收益率%（来自portfolio.json）
 
 
 @dataclass
@@ -91,8 +93,8 @@ class PortfolioAnalyzer:
 
         for entry in entries:
             fund_code = entry.fund_code
-            cost_amount = entry.cost_amount or 0
-            total_cost += cost_amount
+            cost_amount = entry.cost_amount  # 保留 None，不做 or 0
+            total_cost += cost_amount or 0
 
             # 获取基金信息
             basic_info = self._safe_fetch(
@@ -120,9 +122,9 @@ class PortfolioAnalyzer:
             if current_nav and shares:
                 current_value = current_nav * shares
                 total_value += current_value
-                if cost_amount > 0:
+                if cost_amount and cost_amount > 0:
                     return_pct = (current_value - cost_amount) / cost_amount * 100
-            elif current_nav and cost_amount > 0:
+            elif current_nav and cost_amount and cost_amount > 0:
                 # 估算市值
                 avg_cost = entry.cost_nav or current_nav
                 current_value = cost_amount * (current_nav / avg_cost)
@@ -140,7 +142,7 @@ class PortfolioAnalyzer:
 
             total_score += fund_score
             action_dist[action] = action_dist.get(action, 0) + 1
-            risk_dist[risk_level] = risk_dist.get(risk_level, 0) + cost_amount
+            risk_dist[risk_level] = risk_dist.get(risk_level, 0) + (cost_amount or 0)
 
             analysis = FundHoldingAnalysis(
                 fund_code=fund_code,
@@ -157,7 +159,9 @@ class PortfolioAnalyzer:
                 total_score=fund_score,
                 tech_score=tech_score,
                 v2_score=fund_score,
-                dimensions=v2_result.get('dimensions')
+                dimensions=v2_result.get('dimensions'),
+                stored_profit=entry.current_profit,
+                stored_return_rate=entry.current_return_rate,
             )
             fund_analyses.append(analysis)
 
@@ -323,14 +327,25 @@ class PortfolioAnalyzer:
     def _build_report_data(self, fund_analyses: List[FundHoldingAnalysis],
                           summary: PortfolioSummary) -> Dict[str, Any]:
         """构建报告数据"""
+        # 用 portfolio.json 存储的盈亏数据汇总总收益（比实时计算更可靠）
+        stored_profits = [h.stored_profit for h in fund_analyses if h.stored_profit is not None]
+        stored_total_profit = round(sum(stored_profits), 2) if stored_profits else None
+        stored_total_profit_pct = (
+            round(stored_total_profit / summary.total_cost * 100, 2)
+            if stored_total_profit is not None and summary.total_cost > 0
+            else None
+        )
+
         return {
             "report_type": "portfolio_summary",
             "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "summary": {
                 "total_cost": round(summary.total_cost, 2),
                 "total_value": round(summary.total_value, 2) if summary.total_value else None,
-                "total_return": round(summary.total_return, 2) if summary.total_return else None,
-                "total_return_pct": round(summary.total_return_pct, 2) if summary.total_return_pct else None,
+                # 优先用 stored_total_profit（来自用户录入的实际盈亏数据）；
+                # 仅当有精确 shares 数据时才用实时计算值
+                "total_return": stored_total_profit if stored_total_profit is not None else summary.total_return,
+                "total_return_pct": stored_total_profit_pct if stored_total_profit_pct is not None else summary.total_return_pct,
                 "fund_count": summary.fund_count,
                 "avg_score": summary.avg_score,
                 "risk_distribution": summary.risk_distribution,
@@ -341,11 +356,13 @@ class PortfolioAnalyzer:
                     "fund_code": h.fund_code,
                     "fund_name": h.fund_name,
                     "fund_type": h.fund_type,
-                    "cost_amount": round(h.cost_amount, 2),
+                    "cost_amount": round(h.cost_amount, 2) if h.cost_amount is not None else None,
                     "current_nav": h.current_nav,
                     "current_value": round(h.current_value, 2) if h.current_value else None,
                     "return_pct": round(h.return_pct, 2) if h.return_pct else None,
-                    "weight_pct": round(h.cost_amount / summary.total_cost * 100, 1) if summary.total_cost > 0 else 0,
+                    "stored_profit": h.stored_profit,
+                    "stored_return_rate": h.stored_return_rate,
+                    "weight_pct": round((h.cost_amount or 0) / summary.total_cost * 100, 1) if summary.total_cost > 0 else 0,
                     "target_pct": h.target_pct,
                     "min_pct": h.min_pct,
                     "max_pct": h.max_pct,
@@ -390,7 +407,7 @@ class PortfolioAnalyzer:
         cost_by_type = {}
         for h in holdings:
             ft = h['fund_type']
-            cost_by_type[ft] = cost_by_type.get(ft, 0) + h['cost_amount']
+            cost_by_type[ft] = cost_by_type.get(ft, 0) + (h['cost_amount'] or 0)
 
         total_cost = summary['total_cost']
 
@@ -398,7 +415,10 @@ class PortfolioAnalyzer:
         total_value_str = f"¥{summary['total_value']:,.0f}" if summary.get('total_value') else "¥-"
         total_return = summary.get('total_return')
         total_return_pct = summary.get('total_return_pct')
-        return_str = f"{total_return:,.0f}" if total_return is not None else "-"
+        if total_return is not None:
+            return_str = f"{total_return:+,.0f}"
+        else:
+            return_str = "-"
         return_pct_str = f"({total_return_pct:+.1f}%)" if total_return_pct is not None else ""
         return_class = "positive" if total_return and total_return > 0 else ("negative" if total_return and total_return < 0 else "")
 
@@ -526,6 +546,8 @@ class PortfolioAnalyzer:
         .dim-val {{ background: #f093fb; }}
         .dim-cap {{ background: #f5576c; }}
         .dim-sen {{ background: #4facfe; }}
+        td.positive {{ color: #16a34a; font-weight: 600; }}
+        td.negative {{ color: #dc2626; font-weight: 600; }}
     </style>
 </head>
 <body>
@@ -577,7 +599,8 @@ class PortfolioAnalyzer:
                         <th>类型</th>
                         <th>成本金额</th>
                         <th>占比</th>
-                        <th>收益</th>
+                        <th>浮动盈亏</th>
+                        <th>收益率</th>
                         <th>评分</th>
                         <th>建议</th>
                     </tr>
@@ -596,21 +619,40 @@ class PortfolioAnalyzer:
 
             score_class = 'score-high' if h['total_score'] >= 60 else ('score-mid' if h['total_score'] >= 40 else 'score-low')
 
-            return_str_row = f"{h['return_pct']:+.1f}%" if h['return_pct'] else '-'
+            # 优先用 portfolio.json 存储的盈亏值（来自用户截图）
+            stored_profit = h.get('stored_profit')
+            stored_return_rate = h.get('stored_return_rate')
+            if stored_profit is not None:
+                profit_str = f"{stored_profit:+,.2f}"
+                profit_class = "positive" if stored_profit > 0 else ("negative" if stored_profit < 0 else "")
+            else:
+                profit_str = "-"
+                profit_class = ""
+            if stored_return_rate is not None:
+                rate_str = f"{stored_return_rate:+.2f}%"
+                rate_class = "positive" if stored_return_rate > 0 else ("negative" if stored_return_rate < 0 else "")
+            else:
+                rate_str = "-"
+                rate_class = ""
 
             # 构建基金详情链接（使用查找的报告文件）
             fund_code = h['fund_code']
             report_file = h.get('report_file')
             report_link = f"./{report_file}" if report_file else f"./report_{fund_code}_latest.html"
 
+            fund_display_name = h['fund_name']
+            if len(fund_display_name) > 12:
+                fund_display_name = fund_display_name[:12] + '…'
+
             html += f'''
                     <tr>
                         <td><a class="fund-link" href="{report_link}" target="_blank">{fund_code}</a></td>
-                        <td>{h['fund_name'][:15]}...</td>
+                        <td>{fund_display_name}</td>
                         <td>{h['fund_type']}</td>
-                        <td>¥{h['cost_amount']:,.0f}</td>
+                        <td>{"¥{:,.0f}".format(h['cost_amount']) if h['cost_amount'] else "—"}</td>
                         <td>{h['weight_pct']:.1f}%</td>
-                        <td>{return_str_row}</td>
+                        <td class="{profit_class}">{profit_str}</td>
+                        <td class="{rate_class}">{rate_str}</td>
                         <td class="score {score_class}">{h['total_score']:.1f}</td>
                         <td><span class="badge {action_class}">{h['action']}</span></td>
                     </tr>
