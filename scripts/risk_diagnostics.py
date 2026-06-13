@@ -4,7 +4,7 @@
 """
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
 _scripts_dir = os.path.dirname(os.path.abspath(__file__))
@@ -13,12 +13,6 @@ if _pkg_root not in sys.path:
     sys.path.insert(0, _pkg_root)
 
 from scripts.logger import logger
-
-
-@dataclass
-class OverlapGroup:
-    brand: str
-    funds: List[str]   # fund_name 列表
 
 
 @dataclass
@@ -97,7 +91,7 @@ class RiskDiagnostics:
         ]
 
         # QDII
-        total_cost_base = total_portfolio_cost if total_portfolio_cost else total_non_fi_cost
+        total_cost_base = total_portfolio_cost if total_portfolio_cost is not None else total_non_fi_cost
         qdii_cost = sum(
             (h["cost_amount"] or 0.0) for h in holdings
             if "QDII" in (h.get("fund_type") or "") or "QDII" in h.get("fund_name", "")
