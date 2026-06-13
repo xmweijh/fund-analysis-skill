@@ -42,13 +42,14 @@ class TestConcentration:
         assert report.concentration_level == "medium"
 
     def test_low_concentration(self):
-        # Top3 占 55% → level = "low"
+        # 6只基金，Top3 = 18000+17000+16000 = 51000 / 106000 ≈ 48.1% → level = "low"
         holdings = [
-            _make_holding("A", "基金A", 20000),
-            _make_holding("B", "基金B", 18000),
-            _make_holding("C", "基金C", 17000),
-            _make_holding("D", "基金D", 15000),
-            _make_holding("E", "基金E", 30000),
+            _make_holding("A", "基金A", 18000),
+            _make_holding("B", "基金B", 17000),
+            _make_holding("C", "基金C", 16000),
+            _make_holding("D", "基金D", 20000),
+            _make_holding("E", "基金E", 19000),
+            _make_holding("F", "基金F", 16000),
         ]
         report = RiskDiagnostics().diagnose(holdings)
         assert report.concentration_level == "low"

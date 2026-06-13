@@ -46,7 +46,7 @@ class RiskDiagnostics:
     """组合风险诊断器"""
 
     CONCENTRATION_HIGH = 75.0
-    CONCENTRATION_MED  = 69.0
+    CONCENTRATION_MED  = 60.0
     OVERLAP_THRESHOLD = 3
     QDII_LOW  = 5.0
     QDII_HIGH = 20.0
