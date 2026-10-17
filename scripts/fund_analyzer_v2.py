@@ -38,6 +38,30 @@ from scripts.portfolio_manager import PortfolioManager
 from scripts.logger import logger
 
 
+# 红利产品必须按基金代码区分标的；指数官方代码与数据商代码分别维护。
+# provider_index_code=None 表示当前适配器尚未核实，不回退到其他红利指数。
+_DIVIDEND_INDEX_TARGETS = {
+    "007466": {
+        "index_name": "中证红利低波动指数",
+        "index_code": "H30269", "currency": "CNY",
+        "provider_index_code": "CSIH30269",
+        "source": "https://static.cninfo.com.cn/finalpage/2019-10-22/1207001364.PDF",
+    },
+    "007751": {
+        "index_name": "中证沪港深红利成长低波动指数",
+        "index_code": "931157", "currency": "CNY",
+        "provider_index_code": None,
+        "source": "https://www.igwfmc.com/main/jjcp/product/007751/detail.html",
+    },
+    "008163": {
+        "index_name": "标普中国A股大盘红利低波50指数",
+        "index_code": "SPCLLHCP", "currency": "CNY",
+        "provider_index_code": None,
+        "source": "https://www.nffund.com/main/files/2026/03/06/879085631480.pdf",
+    },
+}
+
+
 # 常见指数基金的指数代码映射（基金代码 -> 指数代码）
 _FUND_INDEX_MAP: Dict[str, str] = {
     # 沪深300
@@ -73,10 +97,6 @@ _INDEX_NAME_KEYWORDS: Dict[str, str] = {
     "国证A指": "SZ399317",
 
     # 红利/价值指数
-    "红利低波": "CSIH30269",
-    "红利低波动": "CSIH30269",
-    "红利成长低波": "CSIH30269",
-    "红利成长LV": "CSIH30269",
     "中证红利": "SH000922",
     "上证红利": "SH000015",
     "深证红利": "SZ399324",
@@ -348,8 +368,19 @@ class FundAnalyzerV2:
         """
         index_code = None
 
+        target = _DIVIDEND_INDEX_TARGETS.get(fund_code)
+        if target is not None:
+            index_code = target["provider_index_code"]
+            if index_code is None:
+                logger.warning(f"[v2] {fund_code} 标的为 {target['index_code']}，当前估值源映射未核实")
+                return None
+        elif basic_info and any(token in basic_info.fund_name for token in
+                                ("红利低波", "红利成长")):
+            logger.warning(f"[v2] {fund_code} 红利标的需按合同确认，不使用名称猜测估值")
+            return None
+
         # 先尝试基金代码直接映射
-        if fund_code in _FUND_INDEX_MAP:
+        if index_code is None and fund_code in _FUND_INDEX_MAP:
             index_code = _FUND_INDEX_MAP[fund_code]
 
         # 再尝试从基金名称中推断
@@ -953,6 +984,7 @@ class FundAnalyzerV2:
                           "历史序列尚未验证分红复权，指标仅供研究，不保证未来回撤"],
             },
             "strategy_name": strategy.get_strategy_name() if strategy else None,
+            "index_target": dict(_DIVIDEND_INDEX_TARGETS[fund_code]) if fund_code in _DIVIDEND_INDEX_TARGETS else None,
             "quote": quote_dict,
             "technical": technical_dict if technical_dict else None,
             "valuation": valuation_dict,
