@@ -255,7 +255,7 @@ class FundAnalyzerV2:
         sentiment_result = None
         if strategy:
             try:
-                tech_score = float(tech_result.buy_signal_score) if tech_result else 50.0
+                tech_score = float(tech_result.buy_signal_score) if tech_result and nav_history and len(nav_history.navs) >= 60 else None
                 valuation_score = self._calc_valuation_score(valuation, performance)
                 fundamental_score = self._calc_fundamental_score(performance, manager, risk_metrics)
                 capital_flow_score = self._calc_capital_flow_score(basic_info, quote)
@@ -270,7 +270,7 @@ class FundAnalyzerV2:
                     logger.info(f"[v2] 情绪面评分: {sentiment_score:.1f}")
                 except Exception as e:
                     logger.warning(f"[v2] 情绪分析失败: {e}")
-                    sentiment_score = 50.0
+                    sentiment_score = None
 
                 scores = strategy.calculate_scores(
                     technical=tech_score,
@@ -291,7 +291,9 @@ class FundAnalyzerV2:
 
         # 7. 生成定投建议（按需）
         sip_advice_dict: Optional[Dict[str, Any]] = None
-        if enable_sip:
+        if enable_sip and scores is None:
+            sip_advice_dict = self._unavailable_sip(fund_code, sip_strategy, sip_base_amount)
+        elif enable_sip:
             logger.info(f"[v2] Step 7: 生成定投建议 {fund_code}")
             sip_advice_dict = self._generate_sip_advice(
                 fund_code,
@@ -380,11 +382,11 @@ class FundAnalyzerV2:
         self,
         valuation: Optional[ValuationData],
         performance: Optional[Any] = None
-    ) -> float:
+    ) -> Optional[float]:
         """
         根据估值数据计算估值面评分 (0-100)。
         主要依据 PE 百分位：百分位越低，得分越高。
-        对于主动基金，若无法获取估值，则基于业绩数据估算。
+        无真实估值时返回未知，不以业绩替代估值。
         """
         # 如果能获取估值数据，优先使用
         if valuation is not None and valuation.pe_percentile is not None:
@@ -393,44 +395,22 @@ class FundAnalyzerV2:
             score = 100.0 - pe_pct
             return max(0.0, min(100.0, score))
 
-        # 无法获取估值时，基于业绩数据估算（适用于主动基金）
-        if performance is not None:
-            score = 50.0
-            # 基于1年收益率评估
-            if hasattr(performance, 'return_1y') and performance.return_1y is not None:
-                r1y = performance.return_1y
-                if r1y > 30:
-                    score += 20  # 大涨后可能高估
-                elif r1y > 15:
-                    score += 10
-                elif r1y < -20:
-                    score -= 20  # 大跌后可能低估
-                elif r1y < -10:
-                    score -= 10
-
-            # 基于同类排名评估
-            if hasattr(performance, 'rank_percentile') and performance.rank_percentile is not None:
-                rank = performance.rank_percentile
-                if rank > 80:
-                    score += 10  # 排名靠前，可能合理估值
-                elif rank < 30:
-                    score -= 10  # 排名靠后，可能高估
-
-            return max(0.0, min(100.0, score))
-
-        return 50.0  # 无数据时返回中性分
+        return None  # 缺少真实估值，不以收益或排名代替
 
     def _calc_fundamental_score(
         self,
         performance: Any,
         manager: Any,
         risk_metrics: Optional[Any] = None,
-    ) -> float:
+    ) -> Optional[float]:
         """
         根据业绩数据、基金经理信息和风险指标计算基本面评分 (0-100)。
         """
         # 优先使用风险指标计算的基本面评分
-        if risk_metrics is not None:
+        if risk_metrics is not None and any(
+            getattr(risk_metrics, key, None) is not None
+            for key in ("sharpe_ratio", "calmar_ratio", "alpha", "beta")
+        ):
             try:
                 score = self.risk_analyzer.calculate_fundamental_score(risk_metrics)
                 logger.info(f"[v2] 使用风险指标计算基本面评分: {score:.1f}")
@@ -441,8 +421,11 @@ class FundAnalyzerV2:
         # 传统计算方法（作为 fallback）
         score = 50.0
 
-        if performance is None:
-            return score
+        if performance is None or not any(
+            getattr(performance, key, None) is not None
+            for key in ("return_1y", "max_drawdown", "rank_percentile")
+        ):
+            return None
 
         # 近1年收益加分
         if hasattr(performance, "return_1y") and performance.return_1y is not None:
@@ -502,10 +485,13 @@ class FundAnalyzerV2:
         self,
         basic_info: Optional[FundBasicInfo],
         quote: Any,
-    ) -> float:
+    ) -> Optional[float]:
         """
         根据基金规模和涨跌幅估算资金面评分 (0-100)。
         """
+        if (getattr(basic_info, "fund_scale", None) is None
+                and getattr(quote, "change_pct", None) is None):
+            return None
         score = 50.0
 
         # 基金规模适中加分
@@ -544,6 +530,18 @@ class FundAnalyzerV2:
         生成仓位建议字典。
         基于五维总分和仓位配置，给出加仓/减仓/持有建议。
         """
+        if scores is None:
+            return {
+                "fund_code": fund_code,
+                "fund_type": basic_info.fund_type if basic_info else None,
+                "action": "不可评价",
+                "reason": "类型不支持或评分数据不足，不生成仓位及买卖建议",
+                "total_score": None,
+                "current_pct": None, "target_pct": None,
+                "min_pct": None, "max_pct": None,
+                "target_amount": None, "min_amount": None, "max_amount": None,
+            }
+
         # 获取基金类型
         fund_type = "宽基指数"
         if basic_info and basic_info.fund_type:
@@ -567,12 +565,14 @@ class FundAnalyzerV2:
             return {
                 "fund_code": fund_code,
                 "fund_type": fund_type,
-                "action": "持有",
-                "reason": "无法获取仓位配置，建议保持现有仓位",
-                "target_pct": 10.0,
-                "min_pct": 5.0,
-                "max_pct": 20.0,
-                "current_pct": 0.0,
+                "action": "不可评价",
+                "reason": "无法获取仓位配置，不生成仓位建议",
+                "total_score": scores.total,
+                "target_pct": None,
+                "min_pct": None,
+                "max_pct": None,
+                "current_pct": None,
+                "target_amount": None,
             }
 
         # 计算当前持仓占比
@@ -683,6 +683,9 @@ class FundAnalyzerV2:
         strategy: str,
     ) -> Dict[str, Any]:
         """生成定投建议，序列化为字典"""
+        if tech_result is None and valuation is None:
+            return self._unavailable_sip(fund_code, strategy, base_amount)
+
         try:
             technical_indicators = tech_result.indicators if tech_result else None
 
@@ -720,20 +723,16 @@ class FundAnalyzerV2:
             }
         except Exception as e:
             logger.warning(f"[v2] 生成定投建议失败: {e}")
-            return {
-                "fund_code": fund_code,
-                "strategy": strategy,
-                "signal": "正常定投",
-                "multiplier": 1.0,
-                "base_amount": base_amount,
-                "recommended_amount": base_amount,
-                "confidence": 50,
-                "reasons": ["数据不足，使用默认定投策略"],
-                "risks": ["信息不完整，请等待数据完善"],
-                "take_profit_plans": [],
-                "indicators_snapshot": {},
-                "error": str(e),
-            }
+            return self._unavailable_sip(fund_code, strategy, base_amount)
+
+    @staticmethod
+    def _unavailable_sip(fund_code, strategy, base_amount):
+        return {"fund_code": fund_code, "strategy": strategy,
+                "signal": "不可评价", "multiplier": None,
+                "base_amount": base_amount, "recommended_amount": None,
+                "confidence": 0, "reasons": ["数据不足，不生成定投金额"],
+                "risks": ["需核实基金类型、资金用途和真实指标"],
+                "take_profit_plans": [], "indicators_snapshot": {}}
 
     # ================================================================== #
     #  辅助：构建报告数据                                                  #
@@ -808,47 +807,6 @@ class FundAnalyzerV2:
                 "status": valuation.status,
                 "update_date": valuation.update_date,
             }
-        elif performance:
-            # 对于没有估值数据的主动基金，基于业绩构建估算估值
-            est_pe_percentile = 50.0
-            status = "估算"
-            if hasattr(performance, 'return_1y') and performance.return_1y is not None:
-                r1y = performance.return_1y
-                if r1y > 30:
-                    est_pe_percentile = 70.0  # 大涨后可能高估
-                    status = "可能高估"
-                elif r1y > 15:
-                    est_pe_percentile = 60.0
-                    status = "中性偏高"
-                elif r1y < -20:
-                    est_pe_percentile = 20.0  # 大跌后可能低估
-                    status = "可能低估"
-                elif r1y < -10:
-                    est_pe_percentile = 30.0
-                    status = "中性偏低"
-                else:
-                    est_pe_percentile = 50.0
-                    status = "中性"
-
-            # 结合排名调整
-            if hasattr(performance, 'rank_percentile') and performance.rank_percentile is not None:
-                rp = performance.rank_percentile
-                if rp > 75:
-                    status += "(业绩优秀)"
-                elif rp < 25:
-                    status += "(业绩落后)"
-
-            valuation_dict = {
-                "pe_ttm": None,
-                "pb": None,
-                "pe_percentile": est_pe_percentile,
-                "pb_percentile": None,
-                "risk_premium": None,
-                "status": f"基于业绩估算: {status}",
-                "update_date": None,
-                "is_estimate": True,
-            }
-
         # ── 五维评分 ────────────────────────────────────────────────
         scores_dict: Optional[Dict[str, Any]] = None
         if scores:
@@ -972,8 +930,8 @@ class FundAnalyzerV2:
             sentiment_dict = sentiment_result.to_dict()
 
         # ── 操作建议 ────────────────────────────────────────────────
-        action = "观望"
-        conclusion = "请结合自身情况谨慎决策"
+        action = "不可评价" if scores is None else "观望"
+        conclusion = "类型不支持或评分数据不足，不生成买卖建议" if scores is None else "请结合自身情况谨慎决策"
         if position_advice:
             action = position_advice.get("action", "观望")
             total_score = position_advice.get("total_score", 50.0)
@@ -986,6 +944,14 @@ class FundAnalyzerV2:
             "fund_type": fund_type,
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "analyzer_version": "v2",
+            "data_quality": {
+                "score_available": scores is not None,
+                "valuation_available": valuation is not None and valuation.pe_percentile is not None,
+                "benchmark_metrics_available": risk_metrics is not None and risk_metrics.beta is not None,
+                "notes": ["资金面和情绪面为价格派生启发式，非实测资金流或搜索热度",
+                          "风险指标按日频252期年化；无风险利率为模型假设，非实时利率",
+                          "历史序列尚未验证分红复权，指标仅供研究，不保证未来回撤"],
+            },
             "strategy_name": strategy.get_strategy_name() if strategy else None,
             "quote": quote_dict,
             "technical": technical_dict if technical_dict else None,

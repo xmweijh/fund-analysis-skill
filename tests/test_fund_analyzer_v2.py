@@ -182,14 +182,13 @@ class TestValidateFundCode:
 
 
 class TestCalcValuationScore:
-    def test_none_returns_50(self, analyzer):
-        score = analyzer._calc_valuation_score(None)
-        assert score == 50.0
+    def test_none_valuation_is_unknown(self, analyzer):
+        assert analyzer._calc_valuation_score(None) is None
 
-    def test_no_percentile_returns_50(self, analyzer):
+    def test_no_percentile_is_unknown(self, analyzer):
         val = ValuationData(status="未知")
         score = analyzer._calc_valuation_score(val)
-        assert score == 50.0
+        assert score is None
 
     def test_low_percentile_gives_high_score(self, analyzer):
         val = ValuationData(pe_percentile=10.0, status="低估")
@@ -218,9 +217,8 @@ class TestCalcValuationScore:
 
 
 class TestCalcFundamentalScore:
-    def test_none_performance_returns_50(self, analyzer):
-        score = analyzer._calc_fundamental_score(None, None)
-        assert score == 50.0
+    def test_none_performance_is_unknown(self, analyzer):
+        assert analyzer._calc_fundamental_score(None, None) is None
 
     def test_high_return_boosts_score(self, analyzer, mock_performance, mock_manager):
         score = analyzer._calc_fundamental_score(mock_performance, mock_manager)
@@ -252,9 +250,9 @@ class TestCalcFundamentalScore:
 
 
 class TestCalcCapitalFlowScore:
-    def test_none_returns_50(self, analyzer):
+    def test_none_is_unknown(self, analyzer):
         score = analyzer._calc_capital_flow_score(None, None)
-        assert score == 50.0
+        assert score is None
 
     def test_reasonable_scale_boosts_score(self, analyzer, mock_basic_info, mock_quote):
         score = analyzer._calc_capital_flow_score(mock_basic_info, mock_quote)
@@ -313,7 +311,9 @@ class TestGeneratePositionAdvice:
 
     def test_none_scores_gives_watch_action(self, analyzer, mock_basic_info):
         advice = analyzer._generate_position_advice("110020", mock_basic_info, None)
-        assert advice["action"] in ("观望", "持有")
+        assert advice["action"] == "不可评价"
+        assert advice["total_score"] is None
+        assert advice["target_pct"] is None
 
     def test_returns_required_keys(self, analyzer, mock_basic_info):
         advice = analyzer._generate_position_advice("110020", mock_basic_info, None)
@@ -356,8 +356,9 @@ class TestGenerateSIPAdvice:
             base_amount=1000.0,
             strategy="hybrid",
         )
-        assert advice["signal"] == "正常定投"
-        assert advice["multiplier"] == 1.0
+        assert advice["signal"] == "不可评价"
+        assert advice["multiplier"] is None
+        assert advice["recommended_amount"] is None
 
     def test_ma250_strategy(self, analyzer, mock_tech_indicators):
         tech_result = TechnicalAnalysisResult(
@@ -621,7 +622,7 @@ class TestFetchValuation:
 
         info = FundBasicInfo(fund_code="999999", fund_name="某创业板指数基金")
         result = analyzer._fetch_valuation("999999", info)
-        analyzer.valuation_fetcher.fetch_index_valuation.assert_called_once_with("399006")
+        analyzer.valuation_fetcher.fetch_index_valuation.assert_called_once_with("SZ399006")
         assert result is mock_valuation
 
     def test_no_mapping_returns_none(self, analyzer):

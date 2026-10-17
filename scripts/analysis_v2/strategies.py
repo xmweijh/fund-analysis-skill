@@ -49,6 +49,16 @@ class StrategyWeights:
         }
 
 
+def _require_complete_scores(**scores):
+    """保留真实零分；缺失维度不能伪装为中性评分。"""
+    for name, value in scores.items():
+        if value is not None and not 0 <= value <= 100:
+            raise ValueError(f"{name} 分数必须在 0-100 之间，当前值: {value}")
+    missing = [name for name, value in scores.items() if value is None]
+    if missing:
+        raise ValueError("评分数据不足，缺失维度: " + ", ".join(missing))
+
+
 class AnalysisStrategy(ABC):
     """分析策略抽象基类"""
 
@@ -132,12 +142,9 @@ class IndexFundStrategy(AnalysisStrategy):
         - PE percentile 50-80: 合理 (score 40-70)
         - PE percentile < 50: 低估 (score > 70)
         """
-        # 使用传入的值或设置默认值（50分）
-        technical = technical or 50.0
-        valuation = valuation or 50.0
-        fundamental = fundamental or 50.0
-        capital_flow = capital_flow or 50.0
-        sentiment = sentiment or 50.0
+        _require_complete_scores(technical=technical, valuation=valuation,
+                                 fundamental=fundamental, capital_flow=capital_flow,
+                                 sentiment=sentiment)
 
         # 验证分数范围
         for score, name in [
@@ -219,12 +226,9 @@ class ActiveFundStrategy(AnalysisStrategy):
         - 年化收益率 > 12%: 出色表现 (fundamental score > 65)
         - 最大回撤 < 20%: 风险控制好 (加分因子)
         """
-        # 使用传入的值或设置默认值（50分）
-        technical = technical or 50.0
-        valuation = valuation or 50.0
-        fundamental = fundamental or 50.0
-        capital_flow = capital_flow or 50.0
-        sentiment = sentiment or 50.0
+        _require_complete_scores(technical=technical, valuation=valuation,
+                                 fundamental=fundamental, capital_flow=capital_flow,
+                                 sentiment=sentiment)
 
         # 验证分数范围
         for score, name in [
@@ -274,8 +278,6 @@ class StrategyRouter:
         "ETF联接",
         "指数增强",
         "ETF",
-        "目标日期",
-        "目标风险",
     }
 
     # 主动基金类型
@@ -285,7 +287,6 @@ class StrategyRouter:
         "灵活配置",
         "偏股混合",
         "平衡混合",
-        "偏债混合",
     }
 
     def route(self, fund_info: FundBasicInfo) -> AnalysisStrategy:
@@ -301,14 +302,13 @@ class StrategyRouter:
         Raises:
             ValueError: 如果基金类型为空
         """
-        if not fund_info.fund_type:
-            logger.warning(
-                f"基金 {fund_info.fund_code} ({fund_info.fund_name}) "
-                f"的类型为空，默认使用指数基金策略"
-            )
-            return IndexFundStrategy()
+        if not fund_info.fund_type or not fund_info.fund_type.strip():
+            raise ValueError("基金类型未知，无法选择评分策略")
 
         fund_type = fund_info.fund_type.strip()
+        if any(token in fund_type.upper() for token in
+               ("债", "货币", "FOF", "基金中基金", "目标日期", "目标风险")):
+            raise ValueError(f"尚不支持该基金类型的评分策略: {fund_type}")
 
         # 检查指数基金类型（使用子字符串匹配）
         for index_type in self.INDEX_FUND_TYPES:
@@ -322,12 +322,7 @@ class StrategyRouter:
                 logger.debug(f"基金 {fund_info.fund_code} 为主动基金类型: {fund_type}")
                 return ActiveFundStrategy()
 
-        # 如果都不匹配，记录警告并返回默认策略
-        logger.warning(
-            f"基金 {fund_info.fund_code} 的类型 '{fund_type}' 不在已知类型中，"
-            f"默认使用指数基金策略"
-        )
-        return IndexFundStrategy()
+        raise ValueError(f"尚不支持该基金类型的评分策略: {fund_type}")
 
     def get_strategy_name(self, fund_info: FundBasicInfo) -> str:
         """获取基金对应的策略名称"""
