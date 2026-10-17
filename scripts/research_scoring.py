@@ -127,6 +127,9 @@ def score_fund(fund, as_of):
     for key,w in WEIGHTS[profile].items():
         evidence=metrics.get(key)
         reason=validate_evidence(key,evidence,as_of)
+        if reason=='未提供数据':
+            explanation=fund.get('missing_explanations',{}).get(key)
+            if isinstance(explanation,str) and explanation.strip():reason=explanation
         score=None if reason else interpolate(evidence['value'],knots_for(key,profile))
         if score is not None:
             weight+=w;weighted+=w*score/100
@@ -145,7 +148,8 @@ def score_fund(fund, as_of):
         'coverage_pct':weight,'verified_coverage_pct':weight-reported,
         'missing_weight_range':[round(weighted,1),round(weighted+100-weight,1)],
         'status':'无可评分数据' if not weight else '局部参考' if weight<50 else '暂定参考' if weight<80 else '较完整参考',
-        'dimensions':dimensions,'flags':flags,'position_advice':None,'return_forecast':None}
+        'dimensions':dimensions,'flags':flags,'context':json_safe(fund.get('context',{})),
+        'position_advice':None,'return_forecast':None}
 
 def score_document(document):
     """组合保留每个输入条目；不把不同类型参考分平均成组合风险等级。"""

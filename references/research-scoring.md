@@ -60,6 +60,7 @@ QDII采用对应主动/指数类型，附加汇率、海外交易日、限购和
 
 ```bash
 python scripts/research_report.py --input <本地证据JSON> --output-dir <本地报告目录>
+python scripts/research_report.py --input <本地证据JSON> --public-data-dir <公开产品缓存目录> --output-dir <本地报告目录>
 python -m unittest tests.test_research_scoring -v
 ```
 
@@ -81,6 +82,12 @@ python -m unittest tests.test_research_scoring -v
 ```
 
 省略未知指标即可；实际证据输入与生成报告必须被Git忽略。补足可信数据后复算会改变点分和覆盖率，应保留模型版本、原始输入和日期。单文件HTML无需fetch、外部字体或本机服务。
+
+`--public-data-dir`读取以基金代码命名的JSON，每个文件包含`retrieved_at`与`sources`，各来源为`{url,payload:{data:...}}`。支持`info`（现任经理名、成立日和最新净值日）、`detail`（manager_list及achievement_list中的fund_code/post_date）、`achievement`（阶段业绩）及`growth_3y`（基准说明）。适配器只使用匹配同基金代码的当前团队任职日期，当前名单不全/日期冲突则留缺口；手工证据优先，不覆盖已有指标。
+
+输入可用`missing_explanations`按指标键注明实际缺口原因；只有该项确实未提供数据时展示，不绕过原日期/数值/分母校验。缓存适配器会区分“尚未接数据源”“需完整报告”“成立不足三年”等，避免把它们全部显示成数据不存在。
+
+原版的阶段收益、名次、经理资料继续展示，不等于它们已全部参与新模型。新参考分的目标和权重与旧V1/V2不同，不应直接比较高低；未接入的字段、来源缺失、成立不足区间及口径不匹配需要分别解释。不得将旧版本可取得的真实资料一概称为虚假，也不能为了恢复旧分数用近似估值冒充真实估值。
 
 ## 原则来源及验证状态
 
