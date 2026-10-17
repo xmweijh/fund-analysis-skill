@@ -177,11 +177,11 @@ class TechnicalAnalyzer:
         Returns:
             收益率(%)
         """
-        if len(prices) < days:
+        if days <= 0 or len(prices) <= days:
             return None
 
         current_price = prices[-1]
-        past_price = prices[-days]
+        past_price = prices[-days - 1]
 
         if past_price == 0:
             return None

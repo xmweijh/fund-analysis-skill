@@ -213,14 +213,14 @@ function buildSummaryCards(d) {{
   const valuationStatus = (d.valuation || {{}}).status || '–';
 
   // 目标仓位
-  const targetPct  = position.target_pct !== undefined ? fmt2(position.target_pct) + '%' : '–';
+  const targetPct  = position.target_pct != null ? fmt2(position.target_pct) + '%' : '–';
   // 当前仓位
-  const currentPct = position.current_pct !== undefined ? fmt2(position.current_pct) + '%' : '–';
+  const currentPct = position.current_pct != null ? fmt2(position.current_pct) + '%' : '–';
 
   const cards = [
     {{
       label: '综合评分',
-      value: totalScore !== undefined ? Number(totalScore).toFixed(1) : '–',
+      value: totalScore != null ? Number(totalScore).toFixed(1) : '–',
       sub: '满分 100 分',
       cls: 'card ' + scoreClass(totalScore),
     }},
@@ -333,6 +333,11 @@ function buildTechnicalPanel(tech) {{
 /** 仓位管理面板 */
 function buildPositionPanel(pos) {{
   if (!pos) return '';
+  if (pos.target_pct == null || pos.current_pct == null) {{
+    return '<div class="panel"><div class="panel-body open"><h2>仓位建议</h2>' +
+      '<p>' + esc(pos.action || '不可评价') + '</p><p>' +
+      esc(pos.reason || '缺少仓位数据，不显示目标比例及偏离度') + '</p></div></div>';
+  }}
 
   const deviation = Number(pos.deviation_pct || 0);
   const currentPct = Number(pos.current_pct || 0);
@@ -514,6 +519,16 @@ function buildScoresPanel(scores) {{
 //  主渲染函数
 // ─────────────────────────────────────────────────────────────────────────────
 
+function buildDataQualityPanel(quality) {{
+  if (!quality) return '';
+  const status = quality.score_available ? '启发式评分，仅供研究' : '评分不可评价，需补齐数据或核实基金类型';
+  const notes = (quality.notes || []).map(function(note) {{
+    return '<li>' + esc(note) + '</li>';
+  }}).join('');
+  return '<div class="panel"><div class="panel-body open"><h2>数据质量与计算限制</h2>' +
+    '<p>' + esc(status) + '</p><ul>' + notes + '</ul></div></div>';
+}}
+
 function render(d) {{
   // 标题区
   const fundName = esc(d.fund_name || ('基金 ' + (d.fund_code || '')));
@@ -530,6 +545,7 @@ function render(d) {{
 
   // 摘要卡片
   html += buildSummaryCards(d);
+  html += buildDataQualityPanel(d.data_quality);
 
   // 雷达图（放在卡片下方）
   html += buildRadarPanel(d.scores);

@@ -201,7 +201,12 @@ class PortfolioAnalyzer:
                 with open(json_path, 'r', encoding='utf-8') as f:
                     result = json.load(f)
 
-                scores = result.get('scores', {})
+                scores = result.get('scores')
+                if not scores or any(scores.get(key) is None for key in
+                    ('total', 'technical', 'fundamental', 'valuation', 'capital_flow', 'sentiment')):
+                    raise ValueError('评分不可用，需核实基金类型及数据')
+                if result.get('action') == '不可评价':
+                    raise ValueError('仓位建议不可用，需核实配置及数据')
                 action = result.get('action', '持有')
                 position_advice = result.get('position_advice', {})
 
@@ -223,7 +228,7 @@ class PortfolioAnalyzer:
                     action = self._score_to_action(total_score)
 
                 # 获取风险等级（根据评分计算）
-                risk_level = self._score_to_risk(total_score)
+                risk_level = '待核实'
 
                 return {
                     'total_score': total_score,
@@ -237,14 +242,7 @@ class PortfolioAnalyzer:
                 raise FileNotFoundError(f"Report not found: {json_path}")
 
         except Exception as e:
-            logger.warning(f"V2分析失败 {fund_code}: {e}，使用默认评分")
-            return {
-                'total_score': 50.0,
-                'tech_score': 50.0,
-                'action': '持有',
-                'risk_level': '中风险',
-                'dimensions': {}
-            }
+            raise ValueError(f"基金 {fund_code} 分析不可用，组合报告已停止：{e}") from e
 
     def _score_to_action(self, score: float) -> str:
         """根据评分确定操作建议"""
@@ -258,13 +256,8 @@ class PortfolioAnalyzer:
             return "减仓"
 
     def _score_to_risk(self, score: float) -> str:
-        """根据评分确定风险等级"""
-        if score >= 60:
-            return "低风险"
-        elif score >= 40:
-            return "中风险"
-        else:
-            return "高风险"
+        """吸引力评分不能决定产品风险等级。"""
+        return "待核实"
 
     def _classify_fund_type(self, fund_type_str: Optional[str]) -> str:
         """分类基金类型"""

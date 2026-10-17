@@ -230,27 +230,12 @@ class TestIndexFundStrategy:
         assert 70.0 <= scores.total <= 71.5
 
     def test_index_fund_calculate_scores_with_defaults(self):
-        """测试指数基金评分计算 - 使用默认值"""
-        strategy = IndexFundStrategy()
-        scores = strategy.calculate_scores()
-
-        assert scores.technical == 50.0
-        assert scores.fundamental == 50.0
-        assert scores.valuation == 50.0
-        assert scores.capital_flow == 50.0
-        assert scores.sentiment == 50.0
-        assert scores.total == 50.0  # 所有维度都是50时，加权总分也是50
+        with pytest.raises(ValueError, match="评分数据不足"):
+            IndexFundStrategy().calculate_scores()
 
     def test_index_fund_calculate_scores_with_partial_params(self):
-        """测试指数基金评分计算 - 提供部分参数"""
-        strategy = IndexFundStrategy()
-        scores = strategy.calculate_scores(valuation=90.0, technical=40.0)
-
-        assert scores.valuation == 90.0
-        assert scores.technical == 40.0
-        assert scores.fundamental == 50.0
-        assert scores.capital_flow == 50.0
-        assert scores.sentiment == 50.0
+        with pytest.raises(ValueError, match="fundamental"):
+            IndexFundStrategy().calculate_scores(valuation=90.0, technical=40.0)
 
     def test_index_fund_calculate_scores_validates_range(self):
         """测试评分计算验证范围"""
@@ -268,7 +253,7 @@ class TestIndexFundStrategy:
         """测试返回的评分包含权重信息"""
         strategy = IndexFundStrategy()
         scores = strategy.calculate_scores(
-            technical=60.0, valuation=80.0, fundamental=50.0
+            technical=60.0, valuation=80.0, fundamental=50.0, capital_flow=50.0, sentiment=50.0
         )
 
         weights = scores.weights
@@ -335,21 +320,13 @@ class TestActiveFundStrategy:
         assert 68.5 <= scores.total <= 69.5
 
     def test_active_fund_calculate_scores_with_defaults(self):
-        """测试主动基金评分计算 - 使用默认值"""
-        strategy = ActiveFundStrategy()
-        scores = strategy.calculate_scores()
-
-        assert scores.technical == 50.0
-        assert scores.fundamental == 50.0
-        assert scores.valuation == 50.0
-        assert scores.capital_flow == 50.0
-        assert scores.sentiment == 50.0
-        assert scores.total == 50.0
+        with pytest.raises(ValueError, match="评分数据不足"):
+            ActiveFundStrategy().calculate_scores()
 
     def test_active_fund_weights_in_scores(self):
         """测试返回的评分包含权重信息"""
         strategy = ActiveFundStrategy()
-        scores = strategy.calculate_scores(fundamental=75.0)
+        scores = strategy.calculate_scores(fundamental=75.0, technical=50.0, valuation=50.0, capital_flow=50.0, sentiment=50.0)
 
         weights = scores.weights
         assert weights["technical"] == 0.25
@@ -385,19 +362,13 @@ class TestStrategyRouter:
         strategy = strategy_router.route(hybrid_fund_info)
         assert isinstance(strategy, ActiveFundStrategy)
 
-    def test_route_unknown_type_defaults_to_index(
-        self, strategy_router, unknown_type_fund_info
-    ):
-        """测试未知类型默认路由到指数基金"""
-        strategy = strategy_router.route(unknown_type_fund_info)
-        assert isinstance(strategy, IndexFundStrategy)
+    def test_route_unknown_type_is_unavailable(self, strategy_router, unknown_type_fund_info):
+        with pytest.raises(ValueError, match="不支持"):
+            strategy_router.route(unknown_type_fund_info)
 
-    def test_route_none_type_defaults_to_index(
-        self, strategy_router, none_type_fund_info
-    ):
-        """测试类型为None默认路由到指数基金"""
-        strategy = strategy_router.route(none_type_fund_info)
-        assert isinstance(strategy, IndexFundStrategy)
+    def test_route_none_type_is_unavailable(self, strategy_router, none_type_fund_info):
+        with pytest.raises(ValueError, match="类型未知"):
+            strategy_router.route(none_type_fund_info)
 
     def test_get_strategy_name_index_fund(self, strategy_router, index_fund_info):
         """测试获取指数基金策略名称"""
@@ -411,7 +382,7 @@ class TestStrategyRouter:
 
     def test_route_all_index_fund_types(self, strategy_router):
         """测试所有指数基金类型的路由"""
-        index_types = ["指数基金", "ETF联接", "指数增强", "ETF", "目标日期", "目标风险"]
+        index_types = ["指数基金", "ETF联接", "指数增强", "ETF"]
 
         for fund_type in index_types:
             fund_info = FundBasicInfo(
@@ -424,7 +395,7 @@ class TestStrategyRouter:
 
     def test_route_all_active_fund_types(self, strategy_router):
         """测试所有主动基金类型的路由"""
-        active_types = ["股票型", "混合型", "灵活配置", "偏股混合", "平衡混合", "偏债混合"]
+        active_types = ["股票型", "混合型", "灵活配置", "偏股混合", "平衡混合"]
 
         for fund_type in active_types:
             fund_info = FundBasicInfo(

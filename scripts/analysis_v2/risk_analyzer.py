@@ -13,13 +13,14 @@ from scripts.logger import logger
 class RiskAnalyzer:
     """风险指标分析器"""
 
-    # 无风险利率（年化），使用中国10年期国债收益率约2.5%
+    # 年化无风险利率模型假设；不是实时观测的国债收益率。
     RISK_FREE_RATE = 0.025
 
     # 最小数据量要求
     MIN_DATA_DAYS = 60
 
-    def analyze(self, nav_history: FundNavHistory) -> RiskMetrics:
+    def analyze(self, nav_history: FundNavHistory,
+                benchmark_history: Optional[FundNavHistory] = None) -> RiskMetrics:
         """
         计算基金的风险调整指标
 
@@ -37,7 +38,20 @@ class RiskAnalyzer:
 
         try:
             prices = np.array(navs, dtype=float)
+            if not np.all(np.isfinite(prices)) or np.any(prices <= 0):
+                raise ValueError("净值必须为有限正数")
             returns = self._calculate_returns(prices)
+            benchmark_returns = None
+            if benchmark_history is not None:
+                benchmark_prices = np.array(benchmark_history.navs, dtype=float)
+                if (benchmark_history.dates == nav_history.dates
+                        and len(set(nav_history.dates)) == len(prices)
+                        and len(benchmark_prices) == len(prices)
+                        and np.all(np.isfinite(benchmark_prices))
+                        and np.all(benchmark_prices > 0)):
+                    benchmark_returns = self._calculate_returns(benchmark_prices)
+                else:
+                    logger.warning("基准净值无效或日期未对齐，不计算相对基准指标")
 
             if len(returns) < 10:
                 logger.warning("收益率数据不足，无法计算风险指标")
@@ -49,20 +63,20 @@ class RiskAnalyzer:
             sortino_ratio = self._calculate_sortino_ratio(returns)
             max_drawdown, mdd_duration = self._calculate_max_drawdown(prices)
             calmar_ratio = self._calculate_calmar_ratio(returns, max_drawdown)
-            alpha, beta = self._calculate_alpha_beta(returns)
-            info_ratio = self._calculate_info_ratio(returns)
+            alpha, beta = self._calculate_alpha_beta(returns, benchmark_returns)
+            info_ratio = self._calculate_info_ratio(returns, benchmark_returns)
             downside_dev = self._calculate_downside_deviation(returns)
             recovery_time = self._calculate_recovery_time(prices, max_drawdown)
 
             return RiskMetrics(
-                sharpe_ratio=round(sharpe_ratio, 4) if sharpe_ratio else None,
-                sortino_ratio=round(sortino_ratio, 4) if sortino_ratio else None,
-                calmar_ratio=round(calmar_ratio, 4) if calmar_ratio else None,
-                alpha=round(alpha, 4) if alpha else None,
-                beta=round(beta, 4) if beta else None,
-                info_ratio=round(info_ratio, 4) if info_ratio else None,
-                volatility=round(volatility, 4) if volatility else None,
-                downside_deviation=round(downside_dev, 4) if downside_dev else None,
+                sharpe_ratio=round(sharpe_ratio, 4) if sharpe_ratio is not None else None,
+                sortino_ratio=round(sortino_ratio, 4) if sortino_ratio is not None else None,
+                calmar_ratio=round(calmar_ratio, 4) if calmar_ratio is not None else None,
+                alpha=round(alpha, 4) if alpha is not None else None,
+                beta=round(beta, 4) if beta is not None else None,
+                info_ratio=round(info_ratio, 4) if info_ratio is not None else None,
+                volatility=round(volatility, 4) if volatility is not None else None,
+                downside_deviation=round(downside_dev, 4) if downside_dev is not None else None,
                 max_drawdown_duration=mdd_duration,
                 recovery_time=recovery_time,
             )
@@ -123,11 +137,8 @@ class RiskAnalyzer:
         if len(returns) < 10:
             return None
 
-        negative_returns = returns[returns < 0]
-        if len(negative_returns) == 0:
-            return 0.0001  # 极小值避免除零
-
-        downside_var = np.mean(negative_returns ** 2)
+        # MAR=0，分母包含全部观察期；无负收益时偏差为0，比率不可定义。
+        downside_var = np.mean(np.minimum(returns, 0.0) ** 2)
         daily_downside_dev = np.sqrt(downside_var)
         annual_downside_dev = daily_downside_dev * np.sqrt(252)
         return annual_downside_dev
@@ -175,36 +186,22 @@ class RiskAnalyzer:
         """
         计算Alpha和Beta
 
-        如果没有提供市场收益率，使用简化计算假设市场Beta为1
+        缺少同日对齐的真实基准时返回未知，不用假设市场生成指标。
         """
         if len(returns) < 10:
             return None, None
 
-        # 如果没有市场数据，简化计算
         if market_returns is None or len(market_returns) != len(returns):
-            # 简化版本：假设市场年化收益8%
-            market_annual_return = 0.08
-            annual_return = np.mean(returns) * 252
-
-            # 简化Beta估计（基于波动率比较）
-            volatility = self._calculate_volatility(returns)
-            market_vol = 0.15  # 假设市场波动率15%
-
-            if volatility and market_vol > 0:
-                beta = min(2.0, max(0.2, volatility / market_vol))
-            else:
-                beta = 1.0
-
-            # Alpha = 实际收益 - Beta * 市场收益
-            alpha = annual_return - beta * market_annual_return
-            return alpha, beta
+            return None, None
+        if not np.all(np.isfinite(returns)) or not np.all(np.isfinite(market_returns)):
+            return None, None
 
         # 有市场数据时的精确计算
         covariance = np.cov(returns, market_returns)[0, 1]
-        market_variance = np.var(market_returns)
+        market_variance = np.var(market_returns, ddof=1)
 
         if market_variance == 0:
-            beta = 1.0
+            return None, None
         else:
             beta = covariance / market_variance
 
@@ -218,20 +215,19 @@ class RiskAnalyzer:
         """
         计算信息比率（相对基准的超额收益/跟踪误差）
 
-        如果没有基准数据，使用市场平均收益作为基准
+        缺少同日对齐的真实基准时返回未知。
         """
         if len(returns) < 10:
             return None
 
         if benchmark_returns is None or len(benchmark_returns) != len(returns):
-            # 使用简化基准（假设市场日收益0.0003）
-            benchmark_daily = 0.0003
-            excess_returns = returns - benchmark_daily
-        else:
-            excess_returns = returns - benchmark_returns
+            return None
+        if not np.all(np.isfinite(returns)) or not np.all(np.isfinite(benchmark_returns)):
+            return None
+        excess_returns = returns - benchmark_returns
 
         mean_excess = np.mean(excess_returns) * 252
-        tracking_error = np.std(excess_returns) * np.sqrt(252)
+        tracking_error = np.std(excess_returns, ddof=1) * np.sqrt(252)
 
         if tracking_error == 0:
             return None
