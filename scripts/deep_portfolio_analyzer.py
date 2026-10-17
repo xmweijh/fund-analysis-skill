@@ -133,18 +133,31 @@ class DeepPortfolioAnalyzer:
         total_cost = sum(a.cost_amount or 0.0 for a in analyses)
         stored_profits = [a.stored_profit for a in analyses if a.stored_profit is not None]
         stored_total_profit = round(sum(stored_profits), 2) if stored_profits else None
+        stored_total_profit_pct = (
+            round(stored_total_profit / total_cost * 100, 2)
+            if stored_total_profit is not None and total_cost > 0 else None
+        )
         avg_score = round(
             sum(a.v2_score or 0.0 for a in analyses) / len(analyses), 1
         ) if analyses else 0.0
+
+        # 构建 action_distribution 供 _generate_html 使用
+        action_dist: Dict[str, int] = {}
+        for a in analyses:
+            action_dist[a.action] = action_dist.get(a.action, 0) + 1
 
         report_data = {
             "report_type": "deep_portfolio_analysis",
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "summary": {
                 "total_cost": round(total_cost, 2),
+                "total_value": None,
+                "total_return": stored_total_profit,
+                "total_return_pct": stored_total_profit_pct,
                 "fund_count": len(analyses),
                 "avg_score": avg_score,
-                "total_return": stored_total_profit,
+                "risk_distribution": {},
+                "action_distribution": action_dist,
             },
             "holdings": [
                 {
