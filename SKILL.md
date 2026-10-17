@@ -28,6 +28,8 @@ V2单基金生成 `reports/YYYYMMDD/` 下HTML与JSON；组合入口支持自选�
 
 持仓保存在 `data/portfolio.json`，支持本地查看、新增/更新和删除；先备份再批量改动，用户说已清仓可据其授权更新记录。不要在仓库跟踪文件中填入真实持仓。
 
+若存在 `data/Private/holdings_snapshot.json`，研究时优先读取它的市值、累计收益、来源与记录日期；`data/portfolio.json`用于兼容现有持仓管理器，仅包含已确认代码的基金。未确认代码的现金/货币条目留在完整快照，不虚构代码。份额、成本或净值未知时不要填入截图市值替代。完整快照与兼容列表均被Git忽略；提交前仍需检查未被跟踪，忽略规则不等于加密。
+
 ```python
 from scripts.fund_analyzer import FundAnalyzer
 analyzer = FundAnalyzer()

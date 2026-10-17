@@ -1,6 +1,9 @@
 # ── 个人隐私数据 ──────────────────────────────────────────
 # 用户持仓（包含个人基金信息）
 data/portfolio.json
+/data/*.json
+**/Private/
+data/position_configs/fund_configs.json
 
 # 生成的分析报告（可能含个人持仓信息）
 reports/
@@ -38,3 +41,9 @@ env/
 .vscode/
 *.swp
 *.swo
+
+# 本地安装、工作树和测试缓存
+.catpaw-install-meta.json
+.claude/worktrees/
+.pytest_cache/
+.hypothesis/
