@@ -12,12 +12,14 @@ from pathlib import Path
 import re
 import time
 import urllib.request
+import urllib.error
 import sys
 
 if __package__ in (None,''):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
-COLLECTOR_VERSION='public-sources-v3'
+COLLECTOR_VERSION='public-sources-v4'
+REPORT_PARSER_VERSION='ranked-equities-v2'
 
 
 class Tables(HTMLParser):
@@ -136,16 +138,31 @@ def parse_periodic_report(pages, as_of, source, code):
             body=rest[:end.start()] if end else rest
             flat=re.sub(r'\s+','',body)
             if '公允价值' not in flat or '占基金资' not in flat:continue
-            values=[(float(re.sub(r'\s+','',a).replace(',','')),float(p)) for a,p in
-                    re.findall(r'(?<![\d,])(\d{1,3}(?:,\d{3})+\.\s*\d{2})\s+(\d+\.\d{2})(?!\d)',body)]
-            top=values[:10]
+            # 必须识别原文序号1—10，不能跳过难读的大额行后用后排凑满十条。
+            body=re.sub(r'(?<=[\d,])\s*\.\s*(?=\d{2}(?!\d))','.',body)
+            # QDII的序号可能单独成行；数量与金额也可能在提取文本中粘连。
+            body=re.sub(r'(?<=\.\d{2})(?=\d{1,3},\d{3})',' ',body)
+            starts=list(re.finditer(r'(?m)^[ \t]*(1[01]|[1-9])(?:[ \t]+(?=\S)|[ \t]*\n(?=[ \t]*[^\d\s]))',body))
+            top=[]; ranks=[]
+            for pos,row in enumerate(starts):
+                rank=int(row[1])
+                if rank>10:break
+                fragment=body[row.end():starts[pos+1].start() if pos+1<len(starts) else len(body)]
+                matches=re.findall(r'(?<![\d,.])(\d{1,3}(?:,\s*\d{3})+\s*\.\s*\d{2}|\d+\s*\.\s*\d{2})\s+(\d+\.\d{2})(?!\d)',fragment)
+                if len(matches)!=1:break
+                a,p=matches[0]
+                top.append((float(re.sub(r'\s+','',a).replace(',','')),float(p)))
+                ranks.append(rank)
             # 检查排序、分母与每行披露百分比，防止把数量或其他表当金额。
-            if (len(top)==10 and all(a>=b for (a,_),(b,_) in zip(top,top[1:]))
+            if (ranks==list(range(1,11)) and all(a>=b for (a,_),(b,_) in zip(top,top[1:]))
                     and sum(a for a,_ in top)<=stock_amount*1.00001
                     and all(abs(a/stock_amount*metrics['equity_pct']['value']-pct)<=.02 for a,pct in top)):
                 metrics['top10_equity_pct']=evidence(sum(a for a,_ in top)/stock_amount*100,when,source,
                     basis='equity_assets',complete=True,top10_market_values=[a for a,_ in top],equity_market_value=stock_amount,
-                    note='完整权益明细前十公允价值/资产负债表股票投资，逐行与占净值比例复核')
+                    top10_ranks=ranks,parser_version=REPORT_PARSER_VERSION,
+                    page=next(i+1 for i in range(len(pages)) if title.start()<sum(len(p)+1 for p in pages[:i+1])),
+                    note='原文连续序号1—10公允价值/同期股票资产；逐行与占净值比例复核')
+            else:notes.append('前十权益明细序号/金额/分母校验未通过，未以其他十行替代；需人工核对原文')
     if 'convertible_pct' not in metrics: notes.append('未匹配完整转债/交换债分类行，未从重仓列表填零')
     if 'AAA以下' in compact and '按长期信用评级' in compact:
         notes.append('已查中报信用表，但AAA以下未细分AA+/AA；未评级项目也需区分国债/政策债，不能直接代入低信用比例')
@@ -154,19 +171,42 @@ def parse_periodic_report(pages, as_of, source, code):
     return metrics,notes
 
 
+class SourceRateLimited(RuntimeError):
+    """同一采集批次内暂停已限流主机，不绕过限流继续重试。"""
+
+
 class PublicCollector:
-    def __init__(self, proxy=None, timeout=25):
+    def __init__(self, proxy=None, timeout=25, min_interval=1.0):
+        if not math.isfinite(min_interval) or min_interval<0:raise ValueError('请求间隔须为非负有限秒数')
         self.opener=urllib.request.build_opener(urllib.request.ProxyHandler({'https':proxy,'http':proxy}) if proxy else urllib.request.ProxyHandler())
         self.timeout=timeout
+        self.min_interval=min_interval;self.last_request={};self.blocked_hosts={}
 
     def fetch(self,url):
+        host=urlsplit(url).hostname
+        if host in self.blocked_hosts:raise SourceRateLimited(self.blocked_hosts[host])
         for attempt in range(3):
             try:
+                remaining=self.min_interval-(time.monotonic()-self.last_request.get(host,float('-inf')))
+                if remaining>0:time.sleep(remaining)
+                self.last_request[host]=time.monotonic()
                 request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Referer':'https://fundf10.eastmoney.com/'})
                 with self.opener.open(request,timeout=self.timeout) as response: return response.read()
+            except urllib.error.HTTPError as exc:
+                if exc.code in (429,514):
+                    reason=f'{host} HTTP {exc.code} 限流；本批暂停该主机，使用原日期缓存或保留缺口'
+                    self.blocked_hosts[host]=reason
+                    raise SourceRateLimited(reason) from exc
+                if exc.code<500 or attempt==2:raise
+                time.sleep(.5*(attempt+1))
             except Exception:
                 if attempt==2:raise
                 time.sleep(.5*(attempt+1))
+
+    @staticmethod
+    def source_failure(url,exc):
+        return {'url':url,'status':'rate_limited' if isinstance(exc,SourceRateLimited) else 'error',
+                'error':type(exc).__name__+': '+str(exc)[:200]}
 
     def collect(self,code,as_of,cache_dir,refresh=False):
         if not isinstance(code,str) or not re.fullmatch(r'[0-9]{6}',code):raise ValueError('只接受六位公开基金代码')
@@ -189,7 +229,7 @@ class PublicCollector:
                 if not isinstance(data,dict):raise ValueError('接口未返回产品数据对象')
                 public[key]=data
                 result['sources'][key]={'url':url,'status':'ok','payload':payload}
-            except Exception as exc:result['sources'][key]={'url':url,'status':'error','error':type(exc).__name__+': '+str(exc)[:160]}
+            except Exception as exc:result['sources'][key]=self.source_failure(url,exc)
         for key,slug,parser in [('fees','jjfl',parse_fees),('allocation','zcpz',parse_allocation)]:
             url=f'https://fundf10.eastmoney.com/{slug}_{code}.html'
             try:
@@ -198,7 +238,7 @@ class PublicCollector:
                 # 当前费率页面不能回填为历史日期。
                 metrics=parser(text,today if key=='fees' else as_of,url)
                 result['metrics'].update(metrics);result['sources'][key]={'url':url,'status':'ok' if metrics else 'no_matching_fields'}
-            except Exception as exc:result['sources'][key]={'url':url,'status':'error','error':type(exc).__name__+': '+str(exc)[:160]}
+            except Exception as exc:result['sources'][key]=self.source_failure(url,exc)
         if not public.get('info'):
             # 场内ETF在蛋卷基础接口可能没有数据，使用公开档案与有完整日期的净值接口。
             fallback={}
@@ -215,7 +255,7 @@ class PublicCollector:
                 payload=json.loads(self.fetch(url));latest=payload.get('Data',{}).get('LSJZList',[])
                 if latest:fallback['fund_derived']={'end_date':latest[0]['FSRQ']}
                 result['sources']['nav_latest']={'url':url,'status':'ok' if latest else 'no_matching_fields','payload':payload}
-            except Exception as exc:result['sources']['nav_latest']={'url':url,'status':'error','error':type(exc).__name__+': '+str(exc)[:160]}
+            except Exception as exc:result['sources']['nav_latest']=self.source_failure(url,exc)
             if fallback:public['info']=fallback
         info=public.get('info',{});detail=public.get('detail',{});achievement=public.get('achievement',{})
         nav_date=(info.get('fund_derived') or {}).get('end_date')
@@ -238,34 +278,66 @@ class PublicCollector:
                                  for s in achievement.get('stage_performance_list',[])],
             'source':result['sources'].get('achievement',{}).get('url')}
         index_url=f'https://api.fund.eastmoney.com/f10/JJGG?fundcode={code}&pageIndex=1&pageSize=20&type=3'
+        index_path=directory/f'{code}_report_index.json'
         try:
-            index=json.loads(self.fetch(index_url));result['sources']['report_index']={'url':index_url,'status':'ok'}
-            (directory/f'{code}_report_index.json').write_text(json.dumps(index,ensure_ascii=False,indent=2),encoding='utf-8')
+            index=json.loads(self.fetch(index_url))
+            if not isinstance(index,dict) or not isinstance(index.get('Data'),list):
+                raise ValueError('公告索引格式异常')
+            result['sources']['report_index']={'url':index_url,'status':'ok'}
+            index_path.write_text(json.dumps(index,ensure_ascii=False,indent=2),encoding='utf-8')
+        except Exception as exc:
+            result['sources']['report_index']=self.source_failure(index_url,exc)
+            try:
+                index=json.loads(index_path.read_text(encoding='utf-8'))
+                if not isinstance(index,dict) or not isinstance(index.get('Data'),list):raise ValueError('公告缓存格式异常')
+                result['sources']['report_index'].update(status='cached',refresh_status=result['sources']['report_index']['status'])
+            except (OSError,ValueError):index={}
+        try:
             reports=[r for r in index.get('Data',[]) if r.get('FUNDCODE')==code and r.get('PUBLISHDATEDesc','9999')<=as_of
                      and re.search(r'中期报告|年度报告',r.get('TITLE','')) and '摘要' not in r['TITLE']]
             if reports:
                 report=max(reports,key=lambda r:r['PUBLISHDATEDesc']);rid=report['ID']
+                date.fromisoformat(report['PUBLISHDATEDesc'])
                 if not re.fullmatch(r'AN[0-9]+',rid):raise ValueError('公告ID格式异常')
                 url=f'https://pdf.dfcfw.com/pdf/H2_{rid}_1.pdf'
-                raw=self.fetch(url)
+                pdf_path=directory/f'{code}_{rid}.pdf'
+                # 公告ID不变时重解析本地原文，升级解析器无需重新下载整份PDF。
+                local_pdf=pdf_path.exists()
+                raw=pdf_path.read_bytes() if local_pdf else self.fetch(url)
                 from pypdf import PdfReader
                 pages=[p.extract_text() or '' for p in PdfReader(io.BytesIO(raw)).pages]
-                (directory/f'{code}_{rid}.pdf').write_bytes(raw)
+                if not local_pdf:pdf_path.write_bytes(raw)
                 metrics,notes=parse_periodic_report(pages,as_of,url,code)
                 for item in metrics.values():
                     item['published_at']=report['PUBLISHDATEDesc']
                     item['evidence_type']='manager_periodic_report'
+                    item['retrieval_mode']='cached_original' if local_pdf else 'live_original'
                 for key,item in metrics.items():
                     if result['metrics'].get(key,{}).get('as_of','')<=item['as_of']:result['metrics'][key]=item
                 result['notes']+=notes
-                result['sources']['periodic_report']={'url':url,'status':'ok','title':report['TITLE'],'published_at':report['PUBLISHDATEDesc']}
+                result['sources']['periodic_report']={'url':url,'status':'cached' if local_pdf else 'ok',
+                    'title':report['TITLE'],'published_at':report['PUBLISHDATEDesc'],'parser_version':REPORT_PARSER_VERSION}
             else: result['notes'].append('未找到研究日期以前的完整中期/年度报告')
-        except Exception as exc:result['sources']['periodic_report']={'url':index_url,'status':'error','error':type(exc).__name__+': '+str(exc)[:160]}
+        except Exception as exc:result['sources']['periodic_report']=self.source_failure(index_url,exc)
         for key,item in cached.get('metrics',{}).items():
+            if key=='top10_equity_pct' and item.get('manual') is not True and item.get('parser_version')!=REPORT_PARSER_VERSION:
+                result['notes'].append('旧版自动集中度尚未通过连续序号校验，已停用；需重解析原始PDF或人工核实')
+                continue
             if key not in result['metrics']:
                 result['metrics'][key]=item
                 result['notes'].append(f'{key}本次未获取到新值，保留原日期缓存，合并时仍检查有效期')
-        if cached:result['previous_sources']=cached.get('sources',{})
+        if cached:
+            result['previous_sources']=cached.get('sources',{})
+            result['metric_history']=deepcopy(cached.get('metric_history',[]))
+            for key,old in cached.get('metrics',{}).items():
+                current=result['metrics'].get(key)
+                if old!=current:
+                    result['metric_history'].append({'metric':key,'previous':old,'candidate':current,
+                        'status':'cache_reparsed','reason':'新采集/解析版本重新核对；旧证据保留',
+                        'retrieved_at':result['retrieved_at']})
+            for key,value in cached.get('context',{}).items():
+                if result['context'].get(key) in (None,[]):result['context'][key]=value
+            result['context']['previous_retrieved_at']=cached.get('retrieved_at')
         temporary=path.with_suffix('.json.tmp');temporary.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');temporary.replace(path)
         return result
 
@@ -289,12 +361,26 @@ def enrich_supplemental(document,cache_dir):
             continue
         if cached.get('code')!=code:continue
         context=fund.setdefault('context',{});audit=context.setdefault('supplemental_audit',[])
+        for entry in cached.get('metric_history',[]):
+            if entry not in audit:audit.append(deepcopy(entry))
         for key,value in cached.get('context',{}).items():
             if context.get(key) is None:context[key]=value
         metrics=fund.setdefault('metrics',{})
+        old_top=metrics.get('top10_equity_pct',{})
+        if (old_top.get('evidence_type')=='manager_periodic_report' and old_top.get('manual') is not True
+                and old_top.get('parser_version')!=REPORT_PARSER_VERSION):
+            reason='旧版自动集中度未校验原文连续序号，已暂停计分；需新解析结果或明确人工核验'
+            entry={'metric':'top10_equity_pct','status':'invalidated_parser','previous':old_top,'reason':reason}
+            if entry not in audit:audit.append(entry)
+            metrics.pop('top10_equity_pct',None)
+            context.setdefault('data_gaps',[]).append(reason)
         for key,candidate in cached.get('metrics',{}).items():
             if key not in METRICS:continue
             reason=validate_evidence(key,candidate,when)
+            if (key=='top10_equity_pct' and isinstance(candidate,dict)
+                    and candidate.get('evidence_type')=='manager_periodic_report'
+                    and candidate.get('manual') is not True and candidate.get('parser_version')!=REPORT_PARSER_VERSION):
+                reason='旧版自动集中度未校验连续序号，需重解析原文'
             old=metrics.get(key)
             if reason:entry={'metric':key,'status':'rejected','reason':reason,'candidate':candidate}
             elif old is not None and validate_evidence(key,old,when) is None:
@@ -336,12 +422,15 @@ def render_source_audit(context):
     from html import escape
     from scripts.research_scoring import METRICS
     entries=context.get('supplemental_audit',[])
-    if not entries:return ''
+    sources=context.get('supplemental_sources',{})
+    if not entries and not sources:return ''
     labels={'added':'已补入','existing_kept':'与已有证据一致，保留原值',
             'conflict_existing_kept':'来源存在差异，保留原值待核','rejected':'未通过证据校验',
             'replaced_platform':'已采用管理人同期原文纠正平台值，旧值保留在证据中',
             'replaced_fresher':'已刷新为更晚数据日的公开证据，旧值保留',
-            'invalidated_partial':'原集中度证据不完整，已暂停计分并保留旧值'}
+            'invalidated_partial':'原集中度证据不完整，已暂停计分并保留旧值',
+            'cache_reparsed':'缓存已重新核对，旧证据保留',
+            'invalidated_parser':'旧版解析结果已暂停计分，原值保留于审计'}
     rows=[]
     for entry in entries:
         candidate=entry.get('candidate') if isinstance(entry.get('candidate'),dict) else {}
@@ -351,6 +440,13 @@ def render_source_audit(context):
         if entry.get('reason'):description+='；'+entry['reason']
         url=candidate.get('source','')
         rows.append('<li>'+escape(description)+(f' <a href="{escape(url,quote=True)}" rel="noreferrer">补充来源</a>' if url.startswith('https://') else '')+'</li>')
+    states={'ok':'本次获取成功','cached':'使用原始缓存，非本次实时确认','rate_limited':'限流，本批暂停该主机',
+            'error':'本次获取失败','no_matching_fields':'页面已获取，未匹配字段'}
+    for name,item in sources.items():
+        description=f"{name}：{states.get(item.get('status'),item.get('status','未知'))}"
+        if item.get('published_at'):description+='；公告日 '+str(item['published_at'])
+        if item.get('error'):description+='；'+str(item['error'])
+        rows.append('<li>'+escape(description)+'</li>')
     return '<details class="support"><summary>补源记录与来源差异</summary><ul>'+''.join(rows)+'</ul></details>'
 
 
@@ -361,8 +457,9 @@ def main():
     parser.add_argument('--cache-dir',required=True)
     parser.add_argument('--proxy',default=None,help='可选HTTP代理，不内置个人电脑地址')
     parser.add_argument('--refresh',action='store_true')
+    parser.add_argument('--min-interval',type=float,default=1.0,help='同主机请求最小间隔秒数，默认1秒；限流后本批停止该主机')
     args=parser.parse_args();date.fromisoformat(args.as_of)
-    collector=PublicCollector(args.proxy)
+    collector=PublicCollector(args.proxy,min_interval=args.min_interval)
     for code in dict.fromkeys(args.codes):
         result=collector.collect(code,args.as_of,args.cache_dir,args.refresh)
         statuses={key:{k:v for k,v in item.items() if k in ('url','status','error')} for key,item in result['sources'].items()}

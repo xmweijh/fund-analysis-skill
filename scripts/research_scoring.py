@@ -130,6 +130,9 @@ def validate_evidence(metric, evidence, as_of):
     if metric=='drawdown_1y_pct' and evidence.get('period_days',0)<365: return '不足完整一年回撤样本'
     if metric=='manager_tenure_years' and evidence.get('team_complete') is not True: return '团队任期未完整核实'
     if metric=='top10_equity_pct':
+        if (evidence.get('evidence_type')=='manager_periodic_report' and evidence.get('manual') is not True
+                and evidence.get('top10_ranks')!=list(range(1,11))):
+            return '自动报告解析尚未核实原文连续序号1—10，需重解析原文或明确人工核验'
         if evidence.get('basis')!='equity_assets' or evidence.get('complete') is not True:
             return '需完整前十及股票资产分母；ETF联接需穿透'
     if metric in ('benchmark_excess_3y_pct','tracking_error_1y_pct'):
