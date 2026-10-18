@@ -1,0 +1,14 @@
+{
+  "as_of": "2026-10-18",
+  "funds": [{
+    "code": "000000", "name": "合成债券示例（非真实产品）", "profile": "bond",
+    "market_value": null,
+    "metrics": {
+      "drawdown_1y_pct": {"value": 1, "as_of": "2026-10-16", "source": "合成完整一年统计", "period_days": 365},
+      "annual_fee_pct": {"value": 0.3, "as_of": "2026-10-18", "source": "合成同份额费率"},
+      "gross_assets_ratio": {"value": 1.1, "as_of": "2026-06-30", "source": "合成同期资产负债表"},
+      "convertible_pct": {"value": 0, "as_of": "2026-06-30", "source": "合成完整债券分类", "basis": "net_assets"}
+    },
+    "flags": ["合成数据，仅演示离线报告，不能用于投资结论"]
+  }]
+}
