@@ -2,14 +2,15 @@
 from datetime import date
 import math
 
-MODEL_VERSION = 'research-v1.0'
+MODEL_VERSION = 'public-core-v2.0'
+LEGACY_VERSION = 'research-v1.0'
 LABELS = {
     'bond': '非权益债券', 'enhanced_bond': '增强债券',
     'mixed_allocation': '偏债/配置混合', 'active_equity': '主动权益',
     'index': '股票指数/ETF联接', 'money': '货币基金',
 }
 # 权重是可审查的研究选择，不是拟合出来的最优参数。
-WEIGHTS = {
+LEGACY_WEIGHTS = {
     'bond': {'drawdown_1y_pct':25, 'annual_fee_pct':15, 'lower_credit_pct':20,
              'duration_years':15, 'gross_assets_ratio':15, 'convertible_pct':10},
     'enhanced_bond': {'drawdown_1y_pct':20, 'annual_fee_pct':15, 'lower_credit_pct':15,
@@ -24,6 +25,29 @@ WEIGHTS = {
     'money': {'drawdown_1y_pct':20, 'annual_fee_pct':20, 'lower_credit_pct':30,
              'redemption_business_days':30},
 }
+# 固定的公开基础模型；不按每只基金取到的字段动态挑选权重。
+WEIGHTS = {
+    'bond': {'drawdown_1y_pct':35,'annual_fee_pct':20,'gross_assets_ratio':25,'convertible_pct':20},
+    'enhanced_bond': {'drawdown_1y_pct':30,'annual_fee_pct':20,'gross_assets_ratio':20,'convertible_pct':15,'equity_pct':15},
+    'mixed_allocation': {'drawdown_1y_pct':30,'annual_fee_pct':20,'gross_assets_ratio':20,'convertible_pct':15,'equity_pct':15},
+    'active_equity': {'drawdown_1y_pct':40,'annual_fee_pct':20,'top10_equity_pct':20,'manager_tenure_years':20},
+    'index': {'drawdown_1y_pct':60,'annual_fee_pct':40},
+    'money': {'annual_fee_pct':40,'redemption_business_days':60},
+}
+SCOPES = {
+    'bond':'仅衡量历史回撤、名义费用、披露杠杆与转债配置；不评价信用质量和久期',
+    'enhanced_bond':'仅衡量历史回撤、名义费用及披露配置；不评价信用质量、久期或超额收益能力',
+    'mixed_allocation':'仅衡量历史回撤、名义费用及披露配置；不评价信用质量、久期或配置择时能力',
+    'active_equity':'仅衡量历史回撤、费用、股票集中度与团队连续性；不评价选股能力或超额收益',
+    'index':'仅衡量历史回撤与名义费用；不评价指数便宜程度、跟踪质量或投资价值',
+    'money':'仅比较名义费用与明确渠道的常规到账条件；不评价信用安全或收益能力',
+}
+
+
+def model_weights(model):
+    if model==MODEL_VERSION:return WEIGHTS
+    if model==LEGACY_VERSION:return LEGACY_WEIGHTS
+    raise ValueError(f'未知评分版本: {model!r}')
 METRICS = {
     'drawdown_1y_pct': ('近一年最大回撤', '%', 0, 100, 45),
     'annual_fee_pct': ('名义年度运作费率', '%/年', 0, 20, 365),
@@ -116,17 +140,21 @@ def validate_evidence(metric, evidence, as_of):
             return '需准确指数身份及至少五年估值历史'
     return None
 
-def score_fund(fund, as_of):
+def score_fund(fund, as_of, model=MODEL_VERSION):
     """按可用权重归一化；区间来自缺失维度0–100，不是统计置信区间。"""
     as_of=date.fromisoformat(as_of)
     profile=fund.get('profile')
-    if not isinstance(profile,str) or profile not in WEIGHTS: raise ValueError(f'需要明确支持的研究类型: {profile!r}')
+    weights=model_weights(model)
+    if not isinstance(profile,str) or profile not in weights: raise ValueError(f'需要明确支持的研究类型: {profile!r}')
     metrics=fund.get('metrics',{})
     if not isinstance(metrics,dict): raise ValueError('metrics必须是对象')
     dimensions=[];weight=0;weighted=0;reported=0
-    for key,w in WEIGHTS[profile].items():
+    for key,w in weights[profile].items():
         evidence=metrics.get(key)
         reason=validate_evidence(key,evidence,as_of)
+        if (model==MODEL_VERSION and key=='redemption_business_days' and reason is None
+                and (not isinstance(evidence.get('channel'),str) or not evidence['channel'].strip())):
+            reason='常规到账条件需注明适用销售渠道，不能将快速赎回额度当普遍到账规则'
         if reason=='未提供数据':
             explanation=fund.get('missing_explanations',{}).get(key)
             if isinstance(explanation,str) and explanation.strip():reason=explanation
@@ -134,26 +162,44 @@ def score_fund(fund, as_of):
         if score is not None:
             weight+=w;weighted+=w*score/100
             if evidence.get('verified') is not True: reported+=w
-        dimensions.append({'key':key,'label':METRICS[key][0],'unit':METRICS[key][1],
+        label='名义年费率（来源列示项）' if model==MODEL_VERSION and key=='annual_fee_pct' else METRICS[key][0]
+        dimensions.append({'key':key,'label':label,'unit':METRICS[key][1],
              'weight_pct':w,'score':None if score is None else round(score,1),
              'evidence':json_safe(evidence),'missing_reason':reason,'knots':knots_for(key,profile)})
     flags=list(fund.get('flags',[]))
+    if isinstance(metrics.get('annual_fee_pct'),dict) and metrics['annual_fee_pct'].get('fee_scope')=='listed_operating_fees':
+        flags.append('费用使用完整公开表已列示项合计；未列销售服务费不等于已核实为0，不能当作实际总费用')
+    optional=[]
+    if model==MODEL_VERSION:
+        for key in LEGACY_WEIGHTS[profile].keys()-WEIGHTS[profile].keys():
+            item=metrics.get(key)
+            if validate_evidence(key,item,as_of) is None:
+                optional.append({'key':key,'label':METRICS[key][0],'unit':METRICS[key][1],
+                                 'evidence':json_safe(item),'included_in_score':False})
+        optional.sort(key=lambda item:item['key'])
+        flags.append(SCOPES[profile]+'；基础证据齐全不表示已完成全面风险核验')
     if fund.get('qdii'):
         flags.append('QDII需另核汇率暴露、海外日历、限购及实际到账；当前参考分未覆盖这些风险')
     if reported: flags.append(f'{reported}%模型权重使用未独立核验的披露/平台数据')
     flags.append('规则阈值未经收益预测或样本外回测验证；只在相同研究类型、相同证据集内比较')
-    return {'model_version':MODEL_VERSION,'code':fund.get('code'),'name':fund.get('name'),
+    return {'model_version':model,'model_label':'公开数据基础参考' if model==MODEL_VERSION else '旧版深度参考',
+        'score_scope':SCOPES[profile] if model==MODEL_VERSION else '旧版固定权重，含信用/久期/基准等深度要求',
+        'coverage_scope':'仅本版本固定基础维度' if model==MODEL_VERSION else '旧版深度维度',
+        'optional_dimensions':optional,'code':fund.get('code'),'name':fund.get('name'),
         'profile':profile,'profile_label':LABELS[profile],'as_of':as_of.isoformat(),
         'reference_score':round(weighted*100/weight,1) if weight else None,
         'coverage_pct':weight,'verified_coverage_pct':weight-reported,
         'missing_weight_range':[round(weighted,1),round(weighted+100-weight,1)],
-        'status':'无可评分数据' if not weight else '局部参考' if weight<50 else '暂定参考' if weight<80 else '较完整参考',
+        'status':'无可评分数据' if not weight else '局部基础参考' if model==MODEL_VERSION and weight<80
+                 else '基础资料较完整' if model==MODEL_VERSION else '局部参考' if weight<50 else '暂定参考' if weight<80 else '较完整参考',
         'dimensions':dimensions,'flags':flags,'context':json_safe(fund.get('context',{})),
         'position_advice':None,'return_forecast':None}
 
 def score_document(document):
     """组合保留每个输入条目；不把不同类型参考分平均成组合风险等级。"""
     as_of=document['as_of']
+    model=document.get('scoring_model',MODEL_VERSION)
+    model_weights(model)  # 版本错误不能降级为类型未知。
     date.fromisoformat(as_of)
     rows=document['funds']
     for row in rows:
@@ -169,7 +215,7 @@ def score_document(document):
             if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or value<0:
                 raise ValueError('市值必须是有限非负数或null')
             known+=1;value_total+=value
-        try: result=score_fund(row,as_of)
+        try: result=score_fund(row,as_of,model)
         except ValueError as exc:
             result={'code':row.get('code'),'name':row.get('name'),'profile':row.get('profile'),
                 'reference_score':None,'coverage_pct':0,'verified_coverage_pct':0,'missing_weight_range':[0,100],
@@ -179,7 +225,9 @@ def score_document(document):
             if result['reference_score'] is not None:value_scored+=value
             weighted_coverage+=value*result['coverage_pct']/100
         results.append(result)
-    return {'model_version':MODEL_VERSION,'as_of':as_of,'funds':results,
+    return {'model_version':model,'model_label':'公开数据基础参考' if model==MODEL_VERSION else '旧版深度参考',
+        'model_note':'本版使用固定基础维度；覆盖率不与research-v1.0直接比较，100%也不等于全面风险覆盖' if model==MODEL_VERSION else '旧版完整维度复算；缺失深度数据会降低覆盖率',
+        'as_of':as_of,'funds':results,
         'summary':{'entry_count':len(rows),'scored_count':sum(r['reference_score'] is not None for r in results),
            'known_market_value':round(value_total,2) if known else None,'all_values_known':known==len(rows),
            'scored_value_share_pct':100*value_scored/value_total if value_total else None,

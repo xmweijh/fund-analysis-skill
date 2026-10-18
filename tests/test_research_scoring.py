@@ -5,10 +5,14 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.research_scoring import WEIGHTS, score_fund, score_document
+from scripts.research_scoring import LEGACY_WEIGHTS as WEIGHTS, LEGACY_VERSION, score_fund as _score_fund, score_document as _score_document
 from scripts.research_report import generate, render_html
 
 AS_OF='2026-10-17'
+
+# 固定旧版契约，确保模型迁移后历史分数仍能显式复算。
+def score_fund(fund,as_of):return _score_fund(fund,as_of,LEGACY_VERSION)
+def score_document(document):return _score_document(dict(document,scoring_model=LEGACY_VERSION))
 def evidence(value,**kwargs):
     return dict(value=value,as_of=AS_OF,source='https://example.org/synthetic',**kwargs)
 def fund(profile='active_equity',metrics=None):

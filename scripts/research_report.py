@@ -8,8 +8,9 @@ from urllib.parse import urlsplit
 
 if __package__ in (None,''):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from scripts.research_scoring import MODEL_VERSION, score_document
+from scripts.research_scoring import MODEL_VERSION, LEGACY_VERSION, score_document
 from scripts.research_evidence import enrich_document
+from scripts.public_data_sources import enrich_supplemental, render_source_audit
 
 def esc(value): return html.escape(str(value),quote=True)
 def display(value,suffix=''): return '未知' if value is None else f'{value:,.1f}{suffix}'
@@ -17,6 +18,16 @@ def source_link(source):
     if isinstance(source,str) and source and urlsplit(source).scheme in ('http','https'):
         return f'<a href="{esc(source)}" rel="noreferrer">来源</a>'
     return esc(source or '未知')
+
+
+def optional_html(row):
+    dimensions=row.get('optional_dimensions',[])
+    if not dimensions:return ''
+    items=[]
+    for item in dimensions:
+        e=item['evidence']
+        items.append(f'<li>{esc(item["label"])}：{esc(e["value"])} {esc(item["unit"])}；{esc(e["as_of"])}；{source_link(e["source"])}</li>')
+    return '<details class="support"><summary>已取得的扩展研究证据</summary><p>以下证据不参与基础分，也不改变基础覆盖率。</p><ul>'+''.join(items)+'</ul></details>'
 
 def render_html(result):
     cards=[]
@@ -45,12 +56,13 @@ def render_html(result):
           f'<div class="body"><div class="badges"><span>{esc(row.get("profile_label") or "类型待核实")}</span><span>{esc(row["status"])}</span><span>模型数据覆盖 {row["coverage_pct"]}%</span><span>独立核验覆盖 {row["verified_coverage_pct"]}%</span></div>'
           f'<p><strong>缺失项范围 {lo:.1f}–{hi:.1f}分</strong>：把缺失维度分别设为0/100所得完整加权分范围，非统计置信区间。点分仅按已知维度权重归一化。</p>'
           '<div class="scroll"><table><thead><tr><th>维度</th><th>原权重</th><th>原始值</th><th>维度分</th><th>数据日期</th><th>证据/缺口</th></tr></thead><tbody>'
-          +''.join(dimensions)+'</tbody></table></div>'+context_html+'<ul>'+flags+'</ul></div></details>')
+          +''.join(dimensions)+'</tbody></table></div><p>'+esc(row.get('score_scope',''))+'</p>'+optional_html(row)+context_html+render_source_audit(context)+'<ul>'+flags+'</ul></div></details>')
     summary=result['summary']
     return '''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>基金研究参考评分</title><style>
 body{margin:0;background:#f1f4ef;color:#213d39;font:15px/1.8 system-ui,"Microsoft YaHei",sans-serif}main{max-width:1160px;margin:auto;padding:28px}h1{font-size:30px}.intro,.card{background:#fff;border:1px solid #d9e2d9;border-radius:12px;margin:18px 0;padding:20px}.intro{border-top:5px solid #347c70}.tools{display:flex;gap:10px;position:sticky;top:0;background:#f1f4eff5;padding:12px 0;z-index:1;flex-wrap:wrap}input{flex:1;min-width:180px;padding:12px}input,button{border:1px solid #b7cbbd;border-radius:7px;font:inherit}button{cursor:pointer;background:#e5eee3;color:inherit;padding:8px 14px}.card{padding:0}.card summary{cursor:pointer;display:flex;justify-content:space-between;gap:20px;padding:20px;font-size:17px;font-weight:600}.card summary b{white-space:nowrap;font-size:23px;color:#286d62}.body{padding:0 20px 20px}.badges{display:flex;gap:8px;flex-wrap:wrap}.badges span{font-size:12px;padding:3px 8px;background:#edf2e8;border-radius:5px}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:11px;text-align:left;border-bottom:1px solid #dce4d9;min-width:65px}th{background:#edf2e8}a{color:#216f89}.muted{color:#67766f}.card[hidden]{display:none}@media print{.tools{display:none}body{background:#fff}main{padding:0}.card{break-inside:avoid}summary{break-after:avoid}table{font-size:9pt}.scroll{overflow:visible}}</style></head><body><main>'''+f'''
-<h1>基金研究参考评分</h1><p class="muted">{esc(result['as_of'])} · {MODEL_VERSION} · 本地离线报告</p>
+<h1>{esc(result.get('model_label','基金研究参考评分'))}</h1><p class="muted">{esc(result['as_of'])} · {esc(result['model_version'])} · 本地离线报告</p>
 <section class="intro"><strong>分数偏重风险控制、成本与可验证的产品表现，不是未来收益、买卖时点或保本概率。</strong>
+<p><strong>{esc(result.get('model_note',''))}</strong>。基础分仅衡量下方列示的有限维度，不能作为基金综合质量评级。</p>
 <p>权重和阈值为公开的启发式研究规则，尚未完成预测能力验证。不同基金类型、不同可用维度的分数不直接排名；完整范围越宽，点分越不稳定。零值是真实零值，缺失不补50。</p>
 <p><strong>与原技能结果的区别：</strong>本页采用新增的风险/成本研究模型，不是旧V1/V2评分的同口径重跑。原来已有的阶段收益、回撤、同类名次和经理资料列在各基金下方；新模型额外要求的信用、久期、真实估值和基准等，未取得时明确留缺口。</p>
 <p>输入{summary['entry_count']}项，{summary['scored_count']}项有参考分；已知市值中可评分条目占比{display(summary['scored_value_share_pct'],'%')}，按市值加权的模型证据覆盖{display(summary['evidence_weighted_value_coverage_pct'],'%')}。市值完整：{'是' if summary['all_values_known'] else '否，分母仅含已知市值'}。<strong>不输出跨类型组合总分或自动仓位。</strong></p></section>
@@ -58,8 +70,10 @@ body{margin:0;background:#f1f4ef;color:#213d39;font:15px/1.8 system-ui,"Microsof
 {''.join(cards)}<p class="muted">详细输入、节点、日期与缺失原因保存在同目录 research_scores.json。规则详见技能 references/research-scoring.md。</p>
 <script>const cards=[...document.querySelectorAll('.card')];document.getElementById('search').oninput=e=>{{const q=e.target.value.trim().toLowerCase();cards.forEach(c=>c.hidden=!c.dataset.search.toLowerCase().includes(q))}};document.getElementById('expand').onclick=()=>cards.filter(c=>!c.hidden).forEach(c=>c.open=true);document.getElementById('collapse').onclick=()=>cards.forEach(c=>c.open=false);let saved=[];window.addEventListener('beforeprint',()=>{{saved=cards.map(c=>[c.open,c.hidden]);cards.forEach(c=>{{c.open=true;c.hidden=false}})}});window.addEventListener('afterprint',()=>cards.forEach((c,i)=>{{[c.open,c.hidden]=saved[i]}}));document.getElementById('print').onclick=()=>window.print();</script></main></body></html>'''
 
-def generate(document, output_dir, public_data_dir=None):
+def generate(document, output_dir, public_data_dir=None, supplemental_data_dir=None, scoring_model=None):
+    if scoring_model is not None:document=dict(document,scoring_model=scoring_model)
     if public_data_dir is not None:document=enrich_document(document,public_data_dir)
+    if supplemental_data_dir is not None:document=enrich_supplemental(document,supplemental_data_dir)
     result=score_document(document)
     output=Path(output_dir);output.mkdir(parents=True,exist_ok=True)
     json_path=output/'research_scores.json';html_path=output/'research_scores.html'
@@ -72,8 +86,10 @@ def main():
     parser.add_argument('--input',required=True,help='本地证据JSON，格式见references/research-scoring.md')
     parser.add_argument('--output-dir',required=True,help='本地报告目录；实际持仓请放Private或被忽略目录')
     parser.add_argument('--public-data-dir',help='可选公开产品缓存目录；补接经理任期并展示阶段业绩')
+    parser.add_argument('--supplemental-data-dir',help='公开补源缓存：费率、净资产比例与定期报告')
+    parser.add_argument('--scoring-model',choices=[MODEL_VERSION,LEGACY_VERSION],help='默认公开基础模型；历史复算显式选择旧版')
     args=parser.parse_args()
     document=json.loads(Path(args.input).read_text(encoding='utf-8'))
-    for path in generate(document,args.output_dir,args.public_data_dir):print(path.resolve())
+    for path in generate(document,args.output_dir,args.public_data_dir,args.supplemental_data_dir,args.scoring_model):print(path.resolve())
 
 if __name__=='__main__': main()

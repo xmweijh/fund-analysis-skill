@@ -10,7 +10,9 @@ from urllib.parse import urlsplit
 
 if __package__ in (None,''):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from scripts.research_scoring import json_safe, score_document
+from scripts.research_scoring import MODEL_VERSION, LEGACY_VERSION, json_safe, score_document
+from scripts.public_data_sources import enrich_supplemental, render_source_audit
+from scripts.research_report import optional_html
 
 
 def esc(value): return html.escape(str(value),quote=True)
@@ -88,7 +90,8 @@ def render(document):
 <div class="conditions"><section><h3>考虑新增的条件</h3><p>{esc(action['add_condition'])}</p></section><section><h3>考虑减持/退出的条件</h3><p>{esc(action['reduce_condition'])}</p></section></div>
 <h3>交易节奏与费用检查</h3>{items(action['cost_checks'])}<p class="muted">替代方案：{esc(action['alternative'])}</p>
 <p>现任经理：{esc(context.get('manager_name') or '未知')}；成立日：{esc(context.get('founded_date') or '未知')}；公开净值日：{esc(context.get('nav_date') or '见来源说明')}。</p>
-{nav_chart(fund.get('nav_history'))}
+<p class="muted">{esc(row.get('model_label','参考评分'))} · {esc(row.get('model_version',''))}：{esc(row.get('score_scope',''))}</p>
+{nav_chart(fund.get('nav_history'))}{optional_html(row)}{render_source_audit(context)}
 <details class="support"><summary>阶段业绩与经理资料</summary><p>平台区间累计收益，非本人收益；不同区间/类型不直接排名。</p><div class="scroll"><table><thead><tr><th>区间</th><th>累计收益%</th><th>最大回撤</th><th>同类名次</th></tr></thead><tbody>{''.join(stage_rows)}</tbody></table></div><p>{link(context.get('source'))}</p><p>{esc(context.get('benchmark_description') or '合同基准说明尚待补充')}</p></details>
 <details class="support"><summary>参考评分、覆盖率与缺口</summary><p>{point}分；覆盖{row['coverage_pct']}%，独立核验覆盖{row['verified_coverage_pct']}%；缺失项范围{lo}—{hi}分。范围是缺失维度取0/100的敏感性边界，不是置信区间。分数偏风险/成本，不是旧V1/V2同口径评分，也不直接生成操作。</p><div class="scroll"><table><thead><tr><th>维度</th><th>权重</th><th>原始值</th><th>得分</th><th>日期</th><th>依据/缺口</th></tr></thead><tbody>{''.join(evidence)}</tbody></table></div>{items(row['flags'])}{items(context.get('data_gaps',[]))}</details>
 <details class="support"><summary>平台列示赎回费率（并非本人实际适用费率）</summary><p>个人买入日、确认日、持有份额和到账条件未完整核验；持有期/滚动期规则优先，不能因下列0费率就推断现在可赎。费率来源截至原抓取日。</p><table><thead><tr><th>持有区间</th><th>列示费率</th></tr></thead><tbody>{''.join(fee_rows) or '<tr><td colspan="2">当前缓存无完整费率表，需以个人交易确认页核实</td></tr>'}</tbody></table></details></div></details>''')
@@ -104,8 +107,9 @@ def render(document):
     return '''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>持仓分析与操作方案</title><style>
 :root{--ink:#203d38;--green:#26786b;--line:#dce4da;--paper:#fffef9}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:80px}body{margin:0;background:#eef2ec;color:var(--ink);font:15px/1.85 system-ui,"Microsoft YaHei",sans-serif}header{padding:40px max(24px,calc((100vw - 1200px)/2));background:#193f38;color:#fff}header small{letter-spacing:3px;color:#bed3b8}h1{font-size:clamp(27px,4vw,40px);margin:9px 0}header p{color:#d1dfd0}nav{position:sticky;top:0;background:#f7faf3f5;backdrop-filter:blur(8px);display:flex;gap:18px;padding:12px max(20px,calc((100vw - 1200px)/2));overflow:auto;white-space:nowrap;z-index:5;border-bottom:1px solid var(--line)}a{color:#286b83;text-underline-offset:3px}nav a{text-decoration:none;color:var(--green)}main{max-width:1240px;margin:auto;padding:24px}.panel,.fund{background:var(--paper);border:1px solid var(--line);border-radius:13px;margin-bottom:22px}.panel{padding:25px}h2{font-size:23px;margin:0 0 14px}h3{font-size:17px;margin:16px 0 8px}.lead{background:#e8f0df;border-left:4px solid var(--green);padding:18px 22px;border-radius:7px;font-size:17px}.muted,figcaption{color:#6b786e;font-size:13px}.facts{display:flex;gap:20px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:10px 0 16px}.facts strong{font-size:19px}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;min-width:70px}th{background:#eaf0e2}td small,summary small{display:block;font-size:12px;color:#6d7a6e}.fund>summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:20px;gap:15px;font-weight:650;font-size:17px}.fund>summary b{font-size:14px;background:#e7eee0;padding:5px 10px;border-radius:5px}.fund em{font-style:normal;font-size:12px;color:#748071}.fund-body{padding:0 24px 24px}.action{background:#f3eddc;border-left:3px solid #bd914d;padding:8px 18px;margin:18px 0}.conditions{display:grid;grid-template-columns:1fr 1fr;gap:18px}.conditions section{background:#f0f5ea;padding:7px 16px;border-radius:8px}.support{margin:12px 0;border-top:1px solid var(--line);padding-top:10px}.support>summary{cursor:pointer;color:#436c5c}.tools{display:flex;gap:10px;flex-wrap:wrap;margin:15px 0}input{flex:1;min-width:180px}input,button{padding:9px 13px;font:inherit;border:1px solid #b9cdb9;border-radius:7px;background:#fff}button{cursor:pointer;color:var(--green);background:#eaf1e2}.allocation{display:grid;grid-template-columns:minmax(160px,1.2fr) 2fr 75px;gap:15px;align-items:center;margin:10px 0;font-size:13px}.allocation i{height:10px;background:#edf1e7;border-radius:10px;overflow:hidden}.allocation b{display:block;height:100%;background:#6a9b7b;border-radius:10px}.chart{margin:15px 0}.chart svg{width:100%;max-height:180px}.chart text{font:11px system-ui;fill:#728174}.fund[hidden],tr[hidden]{display:none}footer{color:#748071;font-size:12px;text-align:center;padding:24px}@media(max-width:650px){main{padding:14px}.panel{padding:18px}.conditions{grid-template-columns:1fr}.fund>summary{align-items:start;flex-direction:column}.fund-body{padding:0 16px 20px}.allocation{grid-template-columns:1fr 1fr 60px;gap:7px}header{padding:26px 22px}}@media print{body{background:white;font-size:10pt}nav,.tools{display:none}header{background:white;color:var(--ink);padding:15px}header p{color:var(--ink)}main{padding:0}.panel{padding:12px;border:0}.scroll{overflow:visible}table{font-size:9pt}.fund>summary{break-after:avoid}.fund-body{display:block}.support{break-inside:avoid}a{color:inherit;text-decoration:none}}
 </style></head><body>'''+f'''
-<header><small>LIFEOS · PORTFOLIO DECISION REVIEW</small><h1>持仓分析与操作方案</h1><p>报告生成：{esc(document.get('report_date') or document['as_of'])} · 持仓记录：{esc(document['as_of'])} · 私密本地报告</p><p>{esc(review.get('data_note') or '数据日期见各项来源；建议未执行。')}</p></header>
+<header><small>LIFEOS · PORTFOLIO DECISION REVIEW</small><h1>持仓分析与操作方案</h1><p>报告生成：{esc(document.get('report_date') or document['as_of'])} · 持仓记录：{esc(document.get('holdings_as_of') or document['as_of'])} · 研究日期：{esc(document['as_of'])} · 私密本地报告</p><p>{esc(review.get('data_note') or '数据日期见各项来源；建议未执行。')}</p></header>
 <nav><a href="#decision">操作结论</a><a href="#plan">处理顺序</a><a href="#risk">结构与压力</a><a href="#alternatives">方案比较</a><a href="#holdings">逐只分析</a><a href="#method">依据与边界</a></nav><main>
+<p class="muted">{esc(scored["model_label"])} · {esc(scored["model_version"])}：{esc(scored["model_note"])}</p>
 <section class="panel" id="decision"><h2>先看操作结论</h2><p class="lead">{esc(review.get('headline') or '先明确组合用途与交易条件，再根据证据讨论操作。')}</p><div class="facts"><span>已知持仓 <strong>{number(total)}元</strong></span><span>持仓条目 <strong>{len(funds)}</strong></span><span>有参考分 <strong>{scored['summary']['scored_count']}</strong></span></div>{items(review.get('conclusions',[]))}<p class="muted">以下为研究建议及条件方案，未记为采纳、未执行交易。分数是辅助信息；操作判断另看用途、重叠、期限与交易成本。</p></section>
 <section class="panel" id="plan"><h2>组合处理优先级</h2><div class="scroll"><table><thead><tr><th>优先级</th><th>涉及方向</th><th>建议动作</th><th>执行前条件</th></tr></thead><tbody>{plan_rows}</tbody></table></div>{items(review.get('execution_rules',[]))}</section>
 <section class="panel" id="risk"><h2>账户结构与风险承受</h2>{''.join(allocation)}<h3>15%约束的假设压力检查</h3><p>{esc(review.get('stress_note') or '人为情景，非预测、回测或概率；历史回撤与剩余预算未核实。')}</p><div class="scroll"><table><thead><tr><th>情景</th><th>分组收益假设</th><th>损失量级</th><th>全账户</th><th>剔除余额宝</th></tr></thead><tbody>{stress_rows}</tbody></table></div></section>
@@ -120,7 +124,9 @@ let saved=[];const details=[...document.querySelectorAll('details')];window.addE
 </script></main><footer>单文件离线报告 · 个人数据仅本地保存 · 建议未执行</footer></body></html>'''
 
 
-def generate(document, output_html):
+def generate(document, output_html, supplemental_data_dir=None, scoring_model=None):
+    if scoring_model is not None:document=dict(document,scoring_model=scoring_model)
+    if supplemental_data_dir is not None:document=enrich_supplemental(document,supplemental_data_dir)
     path=Path(output_html)
     if path.suffix.lower()!='.html':raise ValueError('输出文件须为.html')
     content=render(document)
@@ -133,8 +139,10 @@ def main():
     parser=argparse.ArgumentParser(description='生成一个包含操作分析、组合方案和评分证据的离线HTML')
     parser.add_argument('--input',required=True,help='本地证据和显式研究判断JSON')
     parser.add_argument('--output',required=True,help='唯一成品HTML路径')
+    parser.add_argument('--supplemental-data-dir',help='可选公开补源缓存目录，离线合并有效证据')
+    parser.add_argument('--scoring-model',choices=[MODEL_VERSION,LEGACY_VERSION],help='默认公开基础模型；旧版仅用于历史复算')
     args=parser.parse_args()
-    print(generate(json.loads(Path(args.input).read_text(encoding='utf-8')),args.output).resolve())
+    print(generate(json.loads(Path(args.input).read_text(encoding='utf-8')),args.output,args.supplemental_data_dir,args.scoring_model).resolve())
 
 
 if __name__=='__main__':main()

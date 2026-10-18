@@ -1,203 +1,41 @@
-# 基金分析技能 (Fund Analysis)
+# 基金分析技能
 
-需要完整持仓报告与操作分析时，使用单文件整合入口：
+面向公开基金产品研究和本地持仓分析，提供公开数据采集、来源核验、分类型基础参考及离线报告。操作判断由具体研究提供，不由分数自动生成交易。
 
-```bash
-python scripts/operation_report.py --input <本地证据与研究判断JSON> --output <本地私密目录/report.html>
-```
+## 默认能力
 
-按[操作报告契约](references/operation-report.md)准备组合用途、处理倾向、理由、加减仓条件和交易限制。成品只有一个HTML，内嵌评分、数据、图表及交互，不依赖旁文件JSON；原始研究数据与历史仍保留。下列参考评分入口继续用于单独检查模型证据，不替代完整操作报告。
+- 采集公开费率、资产配置及管理人定期报告，保留原文、日期和失败状态。
+- 从完整报告核对总资产/净资产、实际股票和转债配置、符合条件的完整权益集中度。
+- 接入已有产品缓存的阶段业绩与现任团队任期。
+- 默认`public-core-v2.0`，输出有限维度的基础参考分及基础证据覆盖。支持六类产品，规则为启发式，未经收益预测验证。
+- 完整操作分析生成一个独立HTML；单独评分入口生成HTML及可复算JSON。
 
-当前推荐[分类型研究参考评分](references/research-scoring.md)：支持债券、增强债、偏债混合、主动权益、股票指数/联接及货币六种模型，数据不全时也给出暂定分、覆盖率与缺失项范围，生成可直接离线打开的HTML+JSON。规则未经收益预测验证，不自动产生仓位或买卖指令。
+## 字段和评分范围
 
-```bash
-python scripts/research_report.py --input <本地证据JSON> --output-dir <本地私密报告目录>
-```
+| 类型 | 默认基础维度 |
+| --- | --- |
+| 债券 | 一年回撤、名义费用、披露杠杆、转债比例 |
+| 增强债/偏债配置 | 一年回撤、费用、杠杆、股票/转债比例 |
+| 主动权益 | 一年回撤、费用、完整股票集中度、现任团队连续性 |
+| 指数/联接 | 一年回撤、费用；不评价跟踪质量与估值 |
+| 货币 | 费用、注明渠道的常规到账；不评价信用安全 |
 
-输入格式、权重、数据日期与阈值见上述说明；新入口仅使用Python标准库。实际持仓和报告必须放被忽略目录。原V2五维入口保留兼容，缺评分仍显示“不可评价”、旧组合入口停止；其计算限制见[SKILL.md](SKILL.md)及[计算边界](references/analysis-boundaries.md)。以下旧版功能介绍及V1示例不代表所有算法已验证或可以直接采用自动买卖建议。
+信用细分、组合久期、三年合同基准超额、真实日频跟踪误差和长期估值百分位不再是默认必填评分。它们有条件获取，但不能保证每只基金都有免费、同口径数据。证据有效时作为扩展研究展示，不显示一排没有数据的必填项，也不影响基础覆盖率。渠道及当前接入状态见[数据源说明](references/fund-data-sources.md)。
 
-智能基金分析系统，支持单基金深度分析、持仓管理（CRUD）和批量持仓组合分析，生成包含操作建议卡片、重仓股实时行情、真实舆情的专业 Markdown 报告。
+基础维度100%仅代表本模型资料齐全，不能称为基金综合评级或完整风险覆盖。新版缩小了评分范围，不能将其覆盖率与旧模型直接比较。历史`research-v1.0`仍可显式复算。
 
-## 功能特性
-
-- 📋 **顶部操作建议卡片**：综合评分后给出 加仓/建仓/定投/持有/减仓/清仓 等明确操作建议
-- 📊 **多维度分析**：技术面（MA均线/趋势/信号）、基本面（业绩/经理/持仓）、舆情面三位一体
-- 📈 **重仓股实时行情**：前十大重仓股含最新价和涨跌幅（东财 push2his 接口，支持 A 股 + 港股）
-- 🗞️ **真实舆情接入**：东方财富基金公告接口，自动过滤季报/年报/运营例行公告，只展示实质性利空/利好信号
-- 📂 **持仓管理**：支持增删改查，跨会话持久化存储（`data/portfolio.json`）
-- 📦 **批量持仓分析**：一键分析所有持仓基金，报告含**总结摘要表**（操作建议/涨跌幅/净值/收益一览）和**可跳转目录**
-- 💾 **报告自动保存**：所有报告统一存入 `reports/` 目录
-- 🎯 **智能基金推荐**：基于用户持仓分析，推荐补充基金优化投资组合结构
-
-## 数据源
-
-| 数据 | 来源 |
-|------|------|
-| 基金基本信息、净值历史、持仓、业绩、经理 | 蛋卷基金 API（pysnowball） |
-| 基金公告/舆情 | 东方财富 `/f10/jjgg` 接口 |
-| 重仓股实时行情 | 东方财富 `push2his` 日K接口 |
-
-## 安装
+## 使用
 
 ```bash
 pip install -r requirements.txt
+python scripts/public_data_sources.py --codes <六位代码> --as-of <YYYY-MM-DD> --cache-dir <本地缓存>
+python scripts/operation_report.py --input <本地研究JSON> --supplemental-data-dir <本地缓存> --output <本地报告.html>
+python scripts/research_report.py --input <本地证据JSON> --supplemental-data-dir <本地缓存> --output-dir <本地输出目录>
+python -m pytest tests -q
 ```
 
-> **关于 pysnowball**：本项目通过 [pysnowball](https://github.com/uname-yang/pysnowball)（Apache-2.0）接入蛋卷基金 API，用于获取基金净值、持仓、业绩、经理等核心数据，是**必选依赖**。执行上述安装命令会自动安装，无需单独处理。
->
-> 若自动安装失败（网络问题等），可手动安装：
-> ```bash
-> pip install pysnowball
-> ```
+可选采集代理用`--proxy`指定，显式刷新用`--refresh`。离线报告不联网；公开报告采集需要`pypdf`，原V1/V2功能另使用原依赖。实际持仓、报告、缓存只在本地私密/忽略目录保存，外部接口只接收公开基金代码。
 
-## 使用方法
+输入字段、版本选择和权重见[评分契约](references/research-scoring.md)，完整研究判断见[操作报告契约](references/operation-report.md)。技能入口见[SKILL.md](SKILL.md)。
 
-### 单基金分析
-
-```python
-from scripts.fund_analyzer import FundAnalyzer
-
-analyzer = FundAnalyzer()
-
-# 分析单只基金（报告自动保存到 reports/ 目录）
-report = analyzer.analyze("017043")
-print(report)
-```
-
-或直接命令行运行：
-
-```bash
-python scripts/fund_analyzer.py 017043
-```
-
-### 持仓管理
-
-```python
-# 新增/更新持仓
-analyzer.portfolio_add("008975", fund_name="易方达蓝筹精选混合",
-                        shares=100000, cost_nav=1.52, cost_amount=152000)
-
-# 查看持仓列表
-print(analyzer.portfolio_list())
-
-# 删除持仓
-analyzer.portfolio_remove("008975")
-```
-
-### 批量持仓分析
-
-```python
-# 一键分析所有持仓，报告保存到 reports/portfolio_analysis_{ts}.md
-report = analyzer.portfolio_analyze_all()
-```
-
-生成的组合报告结构：
-
-```
-# 📊 持仓组合分析报告
-
-## 🗂 持仓总结          ← 所有持仓一览表（可点击基金名跳转）
-| # | 基金 | 操作建议 | 日涨跌幅 | 当前净值 | 近1年收益 | 核心结论 |
-> 📌 操作分布：买入 N只，持有 N只
-
-## 📑 目录              ← 带操作建议/涨跌幅的锚点目录
-1. [基金名 `代码`](#fund-XXXXXX) — 买入（-0.58%）
-...
-
-## 📋 持仓列表          ← 成本等基础信息
-
----
-各基金完整详细报告（标题含 HTML 锚点，支持目录跳转）
-```
-
-### 智能基金推荐
-
-```python
-from scripts.fund_recommender import FundRecommender
-
-recommender = FundRecommender()
-
-# 推荐中风险、长期投资的基金（基于持仓分析）
-report = recommender.recommend(risk_level='中', investment_period='long', top_n=10)
-
-# 推荐低风险基金
-report = recommender.recommend(risk_level='低', top_n=5)
-
-# 推荐高风险基金
-report = recommender.recommend(risk_level='高', investment_period='short', top_n=5)
-```
-
-或直接命令行运行：
-
-```bash
-# 推荐中风险、长期投资基金（Top 10）
-python scripts/fund_analyzer.py recommend --risk 中 --period long --top 10
-
-# 推荐低风险基金（Top 5）
-python scripts/fund_analyzer.py recommend --risk 低 --top 5
-
-# 推荐高风险、短期投资基金（Top 3）
-python scripts/fund_analyzer.py recommend --risk 高 --period short --top 3
-```
-
-## 报告结构
-
-每份报告包含以下章节（顺序如下）：
-
-1. **📋 综合操作建议**（顶部卡片，含操作建议/近1年收益/回撤/舆情/买卖点位）
-2. **📊 基金基本信息**
-3. **📈 实时行情**
-4. **📉 技术面分析**（MA均线/趋势/信号/近期收益率）
-5. **🏢 持仓分析**（前十大重仓股含实时涨跌幅 + 行业分布）
-6. **👨‍💼 基金经理分析**
-7. **📊 业绩分析**（逐年业绩 & 同类排名对比表）
-8. **📰 舆情分析**（已过滤例行公告，只展示实质信号）
-9. **💼 详细投资建议**（买卖点位 + 操作检查清单）
-
-## 项目结构
-
-```
-fund-analysis/
-├── SKILL.md                    # 技能文档（Agent 触发描述）
-├── README.md                   # 项目说明（本文件）
-├── requirements.txt            # Python 依赖
-├── data/
-│   └── portfolio.json          # 用户持仓数据（持久化）
-├── reports/                    # 生成的分析报告（按日期分目录）
-│   └── 20260307/
-│       ├── fund_analysis_{code}_{ts}.md
-│       └── portfolio_analysis_{ts}.md
-├── scripts/
-│   ├── fund_analyzer.py             # 主控制器（入口）
-│   ├── fund_recommender.py          # 基金推荐引擎
-│   ├── recommendation_engine.py     # 推荐评分和排序
-│   ├── recommendation_advisor.py    # 推荐报告生成
-│   ├── data_fetcher.py              # 数据获取（蛋卷 + 东财）
-│   ├── technical_analysis.py        # 技术面分析
-│   ├── holding_analysis.py          # 持仓分析
-│   ├── manager_analysis.py          # 基金经理分析
-│   ├── performance_analysis.py      # 业绩分析
-│   ├── sentiment_analysis.py        # 舆情分析（真实公告接入）
-│   ├── investment_advisor.py        # 投资建议生成
-│   ├── report_generator.py          # 报告渲染
-│   ├── portfolio_manager.py         # 持仓 CRUD 管理
-│   ├── models.py                    # Pydantic 数据模型
-│   └── logger.py                    # 日志模块
-├── references/                 # 参考文档
-└── examples/                   # 示例报告
-```
-
-## 分析维度说明
-
-| 维度 | 核心指标 |
-|------|---------|
-| 技术面 | MA5/10/20/60、多空排列、趋势（上升/下降/震荡）、偏离度 |
-| 持仓 | 前10重仓股（含实时价格涨跌）、集中度、行业分布、持仓风格 |
-| 基金经理 | 从业年限、管理年限、平均收益率、最大回撤 |
-| 业绩 | 近1/3/6月、1/3年收益率、逐年超额收益、同类排名百分位 |
-| 舆情 | 东财公告情绪评分（0-100）、实质性利空/利好公告（过滤季报/年报） |
-| 综合 | 技术面40% + 基本面40% + 舆情20% 加权评分 |
-
-## 许可证
-
-MIT License
+[历史V1/V2接口和示例](references/legacy-usage.md)保留供兼容查阅；其中旧版自动操作、舆情或推荐器的描述不代表默认基础入口具备相同能力。旧算法边界见[计算边界](references/analysis-boundaries.md)。
