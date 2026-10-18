@@ -13,6 +13,7 @@ if __package__ in (None,''):
 from scripts.research_scoring import MODEL_VERSION, LEGACY_VERSION, json_safe, score_document
 from scripts.public_data_sources import enrich_supplemental, render_source_audit
 from scripts.research_report import optional_html
+from scripts.portfolio_diagnostics import render_management
 
 
 def esc(value): return html.escape(str(value),quote=True)
@@ -111,6 +112,7 @@ def render(document):
 <nav><a href="#decision">操作结论</a><a href="#plan">处理顺序</a><a href="#risk">结构与压力</a><a href="#alternatives">方案比较</a><a href="#holdings">逐只分析</a><a href="#method">依据与边界</a></nav><main>
 <p class="muted">{esc(scored["model_label"])} · {esc(scored["model_version"])}：{esc(scored["model_note"])}</p>
 <section class="panel" id="decision"><h2>先看操作结论</h2><p class="lead">{esc(review.get('headline') or '先明确组合用途与交易条件，再根据证据讨论操作。')}</p><div class="facts"><span>已知持仓 <strong>{number(total)}元</strong></span><span>持仓条目 <strong>{len(funds)}</strong></span><span>有参考分 <strong>{scored['summary']['scored_count']}</strong></span></div>{items(review.get('conclusions',[]))}<p class="muted">以下为研究建议及条件方案，未记为采纳、未执行交易。分数是辅助信息；操作判断另看用途、重叠、期限与交易成本。</p></section>
+{render_management(document)}
 <section class="panel" id="plan"><h2>组合处理优先级</h2><div class="scroll"><table><thead><tr><th>优先级</th><th>涉及方向</th><th>建议动作</th><th>执行前条件</th></tr></thead><tbody>{plan_rows}</tbody></table></div>{items(review.get('execution_rules',[]))}</section>
 <section class="panel" id="risk"><h2>账户结构与风险承受</h2>{''.join(allocation)}<h3>15%约束的假设压力检查</h3><p>{esc(review.get('stress_note') or '人为情景，非预测、回测或概率；历史回撤与剩余预算未核实。')}</p><div class="scroll"><table><thead><tr><th>情景</th><th>分组收益假设</th><th>损失量级</th><th>全账户</th><th>剔除余额宝</th></tr></thead><tbody>{stress_rows}</tbody></table></div></section>
 <section class="panel" id="alternatives"><h2>四种操作方案比较</h2><div class="scroll"><table><thead><tr><th>方案</th><th>适用条件</th><th>好处</th><th>成本与风险</th></tr></thead><tbody>{alternative_rows}</tbody></table></div></section>

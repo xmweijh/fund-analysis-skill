@@ -15,7 +15,8 @@ def current_team_tenure(info, detail, code, as_of, source):
     if len(current)!=len(names) or {m.get('name') for m in current}!=names: return None
     starts={}
     for manager in current:
-        matching={r.get('post_date') for r in manager.get('achievement_list',[]) if r.get('fund_code')==code}
+        matching={r.get('post_date') for r in manager.get('achievement_list',[]) if r.get('fund_code')==code
+                  and (not r.get('resi_date') or r['resi_date']>as_of)}
         if len(matching)!=1: return None
         try: start=date.fromisoformat(matching.pop())
         except (TypeError,ValueError): return None

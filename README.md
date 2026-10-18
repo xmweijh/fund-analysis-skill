@@ -1,6 +1,8 @@
-# 基金分析技能
+# 基金投资与管理技能
 
-面向公开基金产品研究和本地持仓分析，提供公开数据采集、来源核验、分类型基础参考及离线报告。操作判断由具体研究提供，不由分数自动生成交易。
+帮助用户形成“目标与资金安排 → 配置与候选比较 → 投入/调整方案 → 本地记录 → 持续复盘”的工作流程。提供公开数据采集、来源核验、组合核对及离线报告，操作判断由具体研究提供，不由分数自动生成交易。
+
+首次使用、基金/A/C比较、定投、持仓调整与定期管理的流程见[投资与持续管理](references/investment-management.md)。用户只问单只产品或费用时直接研究，不强制完整个人问卷。
 
 ## 默认能力
 
@@ -9,6 +11,8 @@
 - 接入已有产品缓存的阶段业绩与现任团队任期。
 - 默认`public-core-v2.0`，输出有限维度的基础参考分及基础证据覆盖。支持六类产品，规则为启发式，未经收益预测验证。
 - 完整操作分析生成一个独立HTML；单独评分入口生成HTML及可复算JSON。
+- 本地持仓列表支持备份、原子写入和并发冲突检查；文件损坏不当成空持仓覆盖。
+- 按同日同币种已知市值与已声明分组核对配置；目标未确认或分母不完整时不生成配置金额。
 
 ## 字段和评分范围
 
@@ -31,10 +35,13 @@ pip install -r requirements.txt
 python scripts/public_data_sources.py --codes <六位代码> --as-of <YYYY-MM-DD> --cache-dir <本地缓存>
 python scripts/operation_report.py --input <本地研究JSON> --supplemental-data-dir <本地缓存> --output <本地报告.html>
 python scripts/research_report.py --input <本地证据JSON> --supplemental-data-dir <本地缓存> --output-dir <本地输出目录>
+python scripts/portfolio_diagnostics.py --input <本地管理JSON> --output <本地核对.json>
 python -m pytest tests -q
 ```
 
 可选采集代理用`--proxy`指定，显式刷新用`--refresh`。离线报告不联网；公开报告采集需要`pypdf`，原V1/V2功能另使用原依赖。实际持仓、报告、缓存只在本地私密/忽略目录保存，外部接口只接收公开基金代码。
+
+本地列表不等于申赎流水账，不自动计算个人XIRR、重建成本或执行买卖。复盘频率、目标比例和定投预算由用户确认；不承诺收益、回本时间或最大回撤。支持范围与实际自动化能力以流程及数据源说明为准。
 
 输入字段、版本选择和权重见[评分契约](references/research-scoring.md)，完整研究判断见[操作报告契约](references/operation-report.md)。技能入口见[SKILL.md](SKILL.md)。
 

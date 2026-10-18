@@ -21,7 +21,7 @@ class PublicSourceTests(unittest.TestCase):
         self.assertEqual(parse_allocation(text.replace('0.00%','---'),'2026-10-18','s'),{})
 
     def report(self):
-        return ['基金代码000000 报告截止日：2026年6月30日\n6.1 资产负债表\n其中：股票投资 - -\n资产总计 1,200.00 900.00',
+        return ['基金代码基金代码000000 报告截止日：2026年6月30日\n6.1 资产负债表\n其中：股票投资 - -\n资产总计 1,200.00 900.00',
                 '净资产合计 1,000.00 800.00\n6.2 利润表\n7.5 债券品种 公允价值 占基金资产净值比例（%）\n7 可转债（可交换债） - -',
                 '8 同业存单 100.00 10.00\n9 其他 - -\n10 合计 900.00 90.00']
 
@@ -42,7 +42,7 @@ class PublicSourceTests(unittest.TestCase):
         self.assertFalse(parse_periodic_report(self.report()+['报告截止日2025年12月31日'],'2026-10-18','s','000000')[0])
 
     def test_top_five_bonds_are_not_full_convertible_evidence(self):
-        pages=['000000 报告截止日2026年6月30日 前五名债券投资明细 1 某转债 10.00 1.00']
+        pages=['基金代码000000 报告截止日2026年6月30日 前五名债券投资明细 1 某转债 10.00 1.00']
         self.assertNotIn('convertible_pct',parse_periodic_report(pages,'2026-10-18','s','000000')[0])
 
     def test_existing_valid_evidence_conflict_stale_and_idempotence(self):
@@ -98,7 +98,7 @@ class PublicSourceTests(unittest.TestCase):
 
     def test_full_equity_table_uses_same_report_denominator_and_skips_fund_investment(self):
         values=[10000-i*100 for i in range(10)]
-        pages=['000000 报告截止日2026年6月30日\n6.1 资产负债表\n其中：股票投资 200,000.00 100,000.00\n基金投资 - -\n资产总计 300,000.00 200,000.00\n净资产合计 250,000.00 200,000.00\n6.2 利润表\n7.3 期末按公允价值占基金资产净值比例大小排序的所有股票投资明细\n序号 公允价值 占基金资产净值比例（%）\n'+''.join(f'{i+1} 合成股票 {v:,.2f} {v/250000*100:.2f}\n' for i,v in enumerate(values))+'7.4 报告期内股票投资组合的重大变动']
+        pages=['基金代码000000 报告截止日2026年6月30日\n6.1 资产负债表\n其中：股票投资 200,000.00 100,000.00\n基金投资 - -\n资产总计 300,000.00 200,000.00\n净资产合计 250,000.00 200,000.00\n6.2 利润表\n7.3 期末按公允价值占基金资产净值比例大小排序的所有股票投资明细\n序号 公允价值 占基金资产净值比例（%）\n'+''.join(f'{i+1} 合成股票 {v:,.2f} {v/250000*100:.2f}\n' for i,v in enumerate(values))+'7.4 报告期内股票投资组合的重大变动']
         metrics,_=parse_periodic_report(pages,'2026-10-18','s','000000')
         self.assertAlmostEqual(metrics['top10_equity_pct']['value'],sum(values)/200000*100)
         pages=[s.replace('基金投资 - -','基金投资 10,000.00 1,000.00') for s in pages]

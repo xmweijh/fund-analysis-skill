@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import date, datetime, timezone, timedelta
 from html import unescape
 from html.parser import HTMLParser
+from urllib.parse import urlsplit
 import io
 import json
 import math
@@ -16,7 +17,7 @@ import sys
 if __package__ in (None,''):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
-COLLECTOR_VERSION='public-sources-v2'
+COLLECTOR_VERSION='public-sources-v3'
 
 
 class Tables(HTMLParser):
@@ -87,7 +88,12 @@ def parse_periodic_report(pages, as_of, source, code):
     """仅提取完整债券分类表及同一份报告资产负债表，失败保留缺口。"""
     text='\n'.join(pages)
     compact=re.sub(r'\s+','',text)
-    if code not in compact: return {}, ['报告未找到本份额代码，未自动接入']
+    # 保留相邻份额代码之间的分隔，避免去空白后把A/C两个代码拼成12位数字。
+    identity_text=re.sub(r'(?<=[0-9])\s+(?=[0-9])','|',text)
+    identity_text=re.sub(r'\s+','',identity_text)
+    identity=re.findall(r'(?:基金主代码|基金代码|交易代码|基金份额代码)[：:]?([0-9]{6}(?:[|、,/，]+[0-9]{6})*)(?![0-9])',identity_text)
+    if not any(re.search(r'(?<![0-9])'+re.escape(code)+r'(?![0-9])',part) for part in identity):
+        return {}, ['报告产品身份区未找到本份额代码，未从投资明细中的证券代码猜测产品身份']
     # 报告期须由正文报告截止日确认，抓取日不能替代披露期。
     dates=re.findall(r'报告截止日[：:]?(\d{4})年(\d{1,2})月(\d{1,2})日',compact)
     dates={date(int(y),int(m),int(d)).isoformat() for y,m,d in dates}
@@ -163,10 +169,12 @@ class PublicCollector:
                 time.sleep(.5*(attempt+1))
 
     def collect(self,code,as_of,cache_dir,refresh=False):
-        if not re.fullmatch(r'[0-9]{6}',code):raise ValueError('只接受六位公开基金代码')
+        if not isinstance(code,str) or not re.fullmatch(r'[0-9]{6}',code):raise ValueError('只接受六位公开基金代码')
+        date.fromisoformat(as_of)
         directory=Path(cache_dir);directory.mkdir(parents=True,exist_ok=True)
         path=directory/(code+'.json')
         cached=json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+        if cached and cached.get('code')!=code:raise ValueError('缓存代码与请求不一致，已保留原缓存')
         if (cached and not refresh and cached.get('analysis_as_of')==as_of
                 and cached.get('collector_version')==COLLECTOR_VERSION):return cached
         result={'code':code,'collector_version':COLLECTOR_VERSION,'analysis_as_of':as_of,'retrieved_at':datetime.now(timezone.utc).isoformat(),'metrics':{},'sources':{},'notes':[]}
@@ -271,7 +279,14 @@ def enrich_supplemental(document,cache_dir):
         if not isinstance(code,str) or not re.fullmatch(r'[0-9]{6}',code):continue
         path=Path(cache_dir)/(code+'.json')
         if not path.exists():continue
-        cached=json.loads(path.read_text(encoding='utf-8'))
+        try:
+            cached=json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(cached,dict):raise ValueError('缓存须为对象')
+        except (ValueError,UnicodeError):
+            gaps=fund.setdefault('context',{}).setdefault('data_gaps',[])
+            reason='公开补源缓存损坏，已跳过；原文件保留，其他基金继续分析'
+            if reason not in gaps:gaps.append(reason)
+            continue
         if cached.get('code')!=code:continue
         context=fund.setdefault('context',{});audit=context.setdefault('supplemental_audit',[])
         for key,value in cached.get('context',{}).items():
@@ -280,13 +295,16 @@ def enrich_supplemental(document,cache_dir):
         for key,candidate in cached.get('metrics',{}).items():
             if key not in METRICS:continue
             reason=validate_evidence(key,candidate,when)
-            if candidate.get('published_at','0000')>result['as_of']:reason='公告晚于研究日期'
             old=metrics.get(key)
             if reason:entry={'metric':key,'status':'rejected','reason':reason,'candidate':candidate}
             elif old is not None and validate_evidence(key,old,when) is None:
                 differs=abs(old['value']-candidate['value'])>=.05
                 # 同期平台转载与管理人原始报表冲突时，使用可追溯原文；手工证据仍优先。
-                if (differs and candidate.get('evidence_type')=='manager_periodic_report'
+                auto_source=urlsplit(str(old.get('source',''))).hostname in {'danjuanfunds.com','fundf10.eastmoney.com','api.fund.eastmoney.com','pdf.dfcfw.com'}
+                if (auto_source and old.get('manual') is not True and candidate['as_of']>old['as_of']):
+                    metrics[key]=candidate
+                    entry={'metric':key,'status':'replaced_fresher','previous':old,'candidate':candidate}
+                elif (differs and candidate.get('evidence_type')=='manager_periodic_report'
                         and candidate.get('as_of')==old.get('as_of')
                         and str(old.get('source','')).startswith('https://danjuanfunds.com/')):
                     metrics[key]=candidate
@@ -295,7 +313,7 @@ def enrich_supplemental(document,cache_dir):
             else:
                 metrics[key]=candidate
                 entry={'metric':key,'status':'added','previous':old,'candidate':candidate}
-            if entry not in audit and not any(e.get('metric')==key and e.get('status') in ('added','replaced_platform') and e.get('candidate')==candidate for e in audit):audit.append(entry)
+            if entry not in audit and not any(e.get('metric')==key and e.get('status') in ('added','replaced_platform','replaced_fresher') and e.get('candidate')==candidate for e in audit):audit.append(entry)
         gaps=context.setdefault('data_gaps',[])
         for note in cached.get('notes',[]):
             if note not in gaps:gaps.append(note)
@@ -322,10 +340,11 @@ def render_source_audit(context):
     labels={'added':'已补入','existing_kept':'与已有证据一致，保留原值',
             'conflict_existing_kept':'来源存在差异，保留原值待核','rejected':'未通过证据校验',
             'replaced_platform':'已采用管理人同期原文纠正平台值，旧值保留在证据中',
+            'replaced_fresher':'已刷新为更晚数据日的公开证据，旧值保留',
             'invalidated_partial':'原集中度证据不完整，已暂停计分并保留旧值'}
     rows=[]
     for entry in entries:
-        candidate=entry.get('candidate',{})
+        candidate=entry.get('candidate') if isinstance(entry.get('candidate'),dict) else {}
         metric_label=METRICS.get(entry['metric'],(entry['metric'],))[0]
         description=f"{metric_label}：{labels.get(entry['status'],entry['status'])}；候选值 {candidate.get('value')}；数据日 {candidate.get('as_of')}"
         if entry.get('previous') is not None:description+=f"；旧值 {entry['previous'].get('value')}"
@@ -346,7 +365,8 @@ def main():
     collector=PublicCollector(args.proxy)
     for code in dict.fromkeys(args.codes):
         result=collector.collect(code,args.as_of,args.cache_dir,args.refresh)
-        print(json.dumps({'code':code,'metrics':list(result['metrics']),'sources':result['sources']},ensure_ascii=False),flush=True)
+        statuses={key:{k:v for k,v in item.items() if k in ('url','status','error')} for key,item in result['sources'].items()}
+        print(json.dumps({'code':code,'metrics':list(result['metrics']),'sources':statuses},ensure_ascii=False),flush=True)
 
 
 if __name__=='__main__':main()

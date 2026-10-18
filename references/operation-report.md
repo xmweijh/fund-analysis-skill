@@ -51,3 +51,15 @@ python -m unittest tests.test_operation_report -v
 
 
 默认public-core-v2.0只展示固定基础维度；扩展研究仅在已有有效证据时出现，不输出空白深度评分行。可用`--scoring-model research-v1.0`或顶层`scoring_model`显式复算旧版本；报告须展示实际版本、基础分范围及跨版本不可比说明。
+
+## 投资管理输入
+
+默认先按[投资与持续管理流程](investment-management.md)完成本次判断；评分是辅助，不以高分生成投资预算或交易。用户确认的目标配置可通过顶层`investment_policy`传入，`management_review=true`可只检查结构。
+
+- `holdings_as_of`：本人市值记录日，与研究日`as_of`分开。
+- `base_currency`或每项`currency`：声明市值币种；混合币种不直接合计。
+- 每项`allocation_group`：用户确认的产品角色，非自动资产穿透。
+- 每项`exclude_from_allocation=true`：明确排除的应急/专项条目，不能根据基金名称推断。
+- `investment_policy.target_allocations_pct`、`targets_confirmed`与`source`：已确认的分组目标及决定来源。市值、日期、币种、分组任一不完整，管理区只列结构和缺口，不输出静态配置金额。
+
+管理核对不创建交易、不更新持仓列表、不把建议记为成交。合成输入见[管理示例](../examples/management-input.json)。
