@@ -1,6 +1,9 @@
 # ── 个人隐私数据 ──────────────────────────────────────────
 # 用户持仓（包含个人基金信息）
 data/portfolio.json
+*.json.backups/
+*.json.lock
+*.json.*.tmp
 /data/*.json
 **/Private/
 data/position_configs/fund_configs.json

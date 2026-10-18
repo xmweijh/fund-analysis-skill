@@ -1,0 +1,16 @@
+{
+  "as_of": "2026-10-18",
+  "holdings_as_of": "2026-10-17",
+  "base_currency": "CNY",
+  "investment_policy": {
+    "goal": "合成演示场景，不代表真实用户目标",
+    "target_allocations_pct": {"合成权益组": 60, "合成债券组": 40},
+    "targets_confirmed": true,
+    "source": "合成用户决定，仅用于验证程序，不是建议配置"
+  },
+  "funds": [
+    {"code": "000000", "name": "合成权益示例", "profile": "active_equity", "market_value": 70, "allocation_group": "合成权益组", "metrics": {}},
+    {"code": "000001", "name": "合成债券示例", "profile": "bond", "market_value": 30, "allocation_group": "合成债券组", "metrics": {}},
+    {"code": null, "name": "合成备用资金", "profile": null, "market_value": 20, "exclude_from_allocation": true}
+  ]
+}

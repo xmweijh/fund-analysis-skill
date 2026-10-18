@@ -121,6 +121,10 @@ def validate_evidence(metric, evidence, as_of):
     except (ValueError,TypeError,KeyError): return '缺少有效数据日期'
     if age<0: return '数据日期晚于分析日期'
     if age>max_age: return f'数据过期（{age}天，阈值{max_age}天）'
+    if 'published_at' in evidence:
+        try: published=date.fromisoformat(evidence['published_at'])
+        except (ValueError,TypeError):return '公告日期格式无效'
+        if published>as_of:return '公告晚于研究日期'
     if metric in ('lower_credit_pct','convertible_pct','equity_pct') and evidence.get('basis')!='net_assets':
         return '需核实占净资产口径'
     if metric=='drawdown_1y_pct' and evidence.get('period_days',0)<365: return '不足完整一年回撤样本'
