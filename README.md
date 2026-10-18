@@ -1,5 +1,13 @@
 # 基金分析技能 (Fund Analysis)
 
+需要完整持仓报告与操作分析时，使用单文件整合入口：
+
+```bash
+python scripts/operation_report.py --input <本地证据与研究判断JSON> --output <本地私密目录/report.html>
+```
+
+按[操作报告契约](references/operation-report.md)准备组合用途、处理倾向、理由、加减仓条件和交易限制。成品只有一个HTML，内嵌评分、数据、图表及交互，不依赖旁文件JSON；原始研究数据与历史仍保留。下列参考评分入口继续用于单独检查模型证据，不替代完整操作报告。
+
 当前推荐[分类型研究参考评分](references/research-scoring.md)：支持债券、增强债、偏债混合、主动权益、股票指数/联接及货币六种模型，数据不全时也给出暂定分、覆盖率与缺失项范围，生成可直接离线打开的HTML+JSON。规则未经收益预测验证，不自动产生仓位或买卖指令。
 
 ```bash
