@@ -25,6 +25,28 @@ def link(source):
     return esc(source or '未提供')
 
 
+def disclosed_exposures(fund,as_of):
+    """操作判断需要的实际披露，不因未纳入该产品基础评分而隐藏。"""
+    from scripts.research_scoring import validate_evidence
+    labels={'equity_pct':('股票/净资产','%'),'convertible_pct':('转债及交换债/净资产','%'),
+            'gross_assets_ratio':('总资产/净资产','倍'),'top10_equity_pct':('前十股票/股票资产','%')}
+    rows=[]
+    for key,(label,unit) in labels.items():
+        item=fund.get('metrics',{}).get(key)
+        if item is None or validate_evidence(key,item,date.fromisoformat(as_of)):continue
+        detail=item.get('note') or '公开披露，非实时持仓'
+        if item.get('page'):detail+='；PDF第'+str(item['page'])+'页'
+        if item.get('published_at'):detail+='；公告日'+str(item['published_at'])
+        if item.get('manual') is True:detail+='；人工核验/纠正'
+        if key=='top10_equity_pct' and item.get('top10_market_values'):
+            detail+='；前十金额（原报告单位） '+', '.join(number(v) for v in item['top10_market_values'])
+            detail+='；同期股票资产分母 '+number(item.get('equity_market_value'))
+        rows.append(f'<tr><td>{esc(label)}</td><td>{number(item["value"])}{unit}</td><td>{esc(item["as_of"])}</td><td>{esc(detail)} {link(item.get("source"))}</td></tr>')
+    if not rows:return ''
+    caution='定期披露存在滞后；联接/基金投资的直持股票比例不能代替穿透权益风险。'
+    return '<details class="support"><summary>实际披露与风险证据</summary><p>'+caution+'</p><div class="scroll"><table><thead><tr><th>口径</th><th>披露值</th><th>数据日</th><th>依据</th></tr></thead><tbody>'+''.join(rows)+'</tbody></table></div></details>'
+
+
 def normalize_action(fund):
     """操作判断由研究证据显式提供，不能由参考分或浮亏自动推导。"""
     supplied=fund.get('operation_analysis') or {}
@@ -92,7 +114,7 @@ def render(document):
 <h3>交易节奏与费用检查</h3>{items(action['cost_checks'])}<p class="muted">替代方案：{esc(action['alternative'])}</p>
 <p>现任经理：{esc(context.get('manager_name') or '未知')}；成立日：{esc(context.get('founded_date') or '未知')}；公开净值日：{esc(context.get('nav_date') or '见来源说明')}。</p>
 <p class="muted">{esc(row.get('model_label','参考评分'))} · {esc(row.get('model_version',''))}：{esc(row.get('score_scope',''))}</p>
-{nav_chart(fund.get('nav_history'))}{optional_html(row)}{render_source_audit(context)}
+{nav_chart(fund.get('nav_history'))}{disclosed_exposures(fund,document['as_of'])}{optional_html(row)}{render_source_audit(context)}
 <details class="support"><summary>阶段业绩与经理资料</summary><p>平台区间累计收益，非本人收益；不同区间/类型不直接排名。</p><div class="scroll"><table><thead><tr><th>区间</th><th>累计收益%</th><th>最大回撤</th><th>同类名次</th></tr></thead><tbody>{''.join(stage_rows)}</tbody></table></div><p>{link(context.get('source'))}</p><p>{esc(context.get('benchmark_description') or '合同基准说明尚待补充')}</p></details>
 <details class="support"><summary>参考评分、覆盖率与缺口</summary><p>{point}分；覆盖{row['coverage_pct']}%，独立核验覆盖{row['verified_coverage_pct']}%；缺失项范围{lo}—{hi}分。范围是缺失维度取0/100的敏感性边界，不是置信区间。分数偏风险/成本，不是旧V1/V2同口径评分，也不直接生成操作。</p><div class="scroll"><table><thead><tr><th>维度</th><th>权重</th><th>原始值</th><th>得分</th><th>日期</th><th>依据/缺口</th></tr></thead><tbody>{''.join(evidence)}</tbody></table></div>{items(row['flags'])}{items(context.get('data_gaps',[]))}</details>
 <details class="support"><summary>平台列示赎回费率（并非本人实际适用费率）</summary><p>个人买入日、确认日、持有份额和到账条件未完整核验；持有期/滚动期规则优先，不能因下列0费率就推断现在可赎。费率来源截至原抓取日。</p><table><thead><tr><th>持有区间</th><th>列示费率</th></tr></thead><tbody>{''.join(fee_rows) or '<tr><td colspan="2">当前缓存无完整费率表，需以个人交易确认页核实</td></tr>'}</tbody></table></details></div></details>''')
