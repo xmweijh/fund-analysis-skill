@@ -20,6 +20,7 @@ SSE = "https://query.sse.com.cn/commonQuery.do"
 SZSE = "https://www.szse.cn/api/report/ShowReport"
 NAV = "https://api.fund.eastmoney.com/f10/lsjz"
 FLOW = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
+FLOW_SNAPSHOT = "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get"
 
 
 def number(v):
@@ -64,7 +65,7 @@ class PublicClient:
             return None
         else:
             try:
-                request = urllib.request.Request(full, headers={"User-Agent":"Mozilla/5.0", "Referer":referer})
+                request = urllib.request.Request(full, headers={"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36", "Referer":referer})
                 with urllib.request.urlopen(request, timeout=22) as response:
                     body = response.read()
                 target.write_bytes(body)
@@ -136,6 +137,45 @@ def daily_estimate(previous, current, nav, prev_nav=None):
 
 def strict_sum(values):
     return sum(values) if values and all(x is not None for x in values) else None
+
+
+def parse_market_flow(document, code, as_of):
+    """历史路由15列、备用快照6列；不把一条快照扩展为多日历史。"""
+    if not isinstance(document,dict) or document.get("rc",0) != 0:
+        return {}
+    payload = document.get("data")
+    if not isinstance(payload,dict) or str(payload.get("code")) != code:
+        return {}
+    output = {}
+    for line in payload.get("klines",[]):
+        if not isinstance(line,str):
+            continue
+        columns = line.split(",")
+        if len(columns) < 6:
+            continue
+        day = columns[0]
+        try:
+            date.fromisoformat(day)
+        except ValueError:
+            continue
+        amount = number(columns[1])
+        if day <= as_of and amount is not None:
+            output[day] = {"flow":amount/1e8,"ratio":number(columns[6]) if len(columns)>6 else None}
+    return output
+
+
+def fetch_market_flow(client, code, as_of):
+    params = {"lmt":0,"klt":101,"fields1":"f1,f2,f3,f7",
+              "fields2":"f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
+              "secid":f"{'1' if code.startswith(('5','6')) else '0'}.{code}"}
+    document = client.json(FLOW,params,"https://data.eastmoney.com/",f"etf_market_flow_{code}_{as_of}.json")
+    history = parse_market_flow(document,code,as_of)
+    if as_of in history:
+        return history
+    snapshot = client.json(FLOW_SNAPSHOT,{**params,"lmt":120},"https://data.eastmoney.com/",f"etf_market_snapshot_{code}_{as_of}.json")
+    for day, row in parse_market_flow(snapshot,code,as_of).items():
+        history.setdefault(day,row)
+    return history
 
 
 def national_quantity_bounds(evidence, as_of):
@@ -244,16 +284,7 @@ def collect(cache, as_of, universe, offline=False):
             client.audit.append({"mode":"解析失败","error":str(exc),"url":SZSE})
     products = {}
     for code in codes:
-        flow_doc = client.json(FLOW,{"lmt":0,"klt":101,"fields1":"f1,f2,f3,f7",
-                                    "fields2":"f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
-                                    "secid":f"{'1' if code.startswith(('5','6')) else '0'}.{code}"},
-                              "https://data.eastmoney.com/",f"etf_market_flow_{code}_{as_of}.json")
-        market_daily = {}
-        for line in ((flow_doc or {}).get("data") or {}).get("klines",[]):
-            x=line.split(",")
-            if len(x) >= 7 and x[0] <= as_of:
-                amount=number(x[1])
-                market_daily[x[0]]={"flow":amount/1e8 if amount is not None else None,"ratio":number(x[6])}
+        market_daily = fetch_market_flow(client,code,as_of)
         daily = {}
         for i, d in enumerate(dates):
             row = shares.get(d, {}).get(code, {})
