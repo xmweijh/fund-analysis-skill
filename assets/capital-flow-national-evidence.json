@@ -1,0 +1,13 @@
+{
+  "scope":"仅中央汇金投资有限责任公司与中央汇金资产管理有限责任公司两个实名主体、四只沪深300ETF；专项计划、中国诚通、国新等其他主体未计入。不是国家队总持仓。",
+  "method":"2025年末两个实名主体持有份额之和，减去2026年中该ETF的全部份额，正差值构成这两个主体合计持仓减少的保守下界。期末两个主体的持仓不可能超过全基金总份额；已核对四份中报的本期拆分变动份额均为无。此为数量上界推算，不能确定交易日期、现金流、转持去向或当前持仓。",
+  "previous_as_of":"2025-12-31",
+  "as_of":"2026-06-30",
+  "verified_at":"2026-10-28",
+  "rows":[
+    {"code":"510300","huijin_investment_shares":35654598859,"huijin_asset_shares":37858474974,"current_total_shares":18914887690,"split_change":0,"previous_source":{"url":"https://pdf.dfcfw.com/pdf/H2_AN202603301820868083_1.pdf","published_at":"2026-03-31","pdf_page":75,"printed_page":75,"section":"9.2 期末上市基金前十名持有人，序号1、2"},"current_source":{"url":"https://pdf.dfcfw.com/pdf/H2_AN202608291828684524_1.pdf","published_at":"2026-08-29","pdf_page":60,"printed_page":60,"section":"8 持有人信息；9 开放式基金份额变动"}},
+    {"code":"510330","huijin_investment_shares":20937230572,"huijin_asset_shares":21090791723,"current_total_shares":7489149828,"split_change":0,"previous_source":{"url":"https://pdf.dfcfw.com/pdf/H2_AN202603301820866235_1.pdf","published_at":"2026-03-31","pdf_page":68,"printed_page":67,"section":"9.2 期末上市基金前十名持有人，序号1、2"},"current_source":{"url":"https://pdf.dfcfw.com/pdf/H2_AN202608301828742580_1.pdf","published_at":"2026-08-31","pdf_page":61,"printed_page":61,"section":"9 开放式基金份额变动"}},
+    {"code":"510310","huijin_investment_shares":27355388757,"huijin_asset_shares":28538696695,"current_total_shares":11644903922,"split_change":0,"previous_source":{"url":"https://pdf.dfcfw.com/pdf/H2_AN202603301820873936_1.pdf","published_at":"2026-03-31","pdf_page":75,"printed_page":75,"section":"9.2 期末上市基金前十名持有人，序号1、2；序号5专项计划不计入"},"current_source":{"url":"https://pdf.dfcfw.com/pdf/H2_AN202608301828743058_1.pdf","published_at":"2026-08-31","pdf_page":58,"printed_page":58,"section":"9 开放式基金份额变动；总份额含场外，作保守上界"}},
+    {"code":"159919","huijin_investment_shares":19543686916,"huijin_asset_shares":15954808069,"current_total_shares":6939216676,"split_change":0,"previous_source":{"url":"https://pdf.dfcfw.com/pdf/H2_AN202603291820838477_1.pdf","published_at":"2026-03-30","pdf_page":66,"printed_page":66,"section":"9.2 期末上市基金前十名持有人，序号1、2"},"current_source":{"url":"https://pdf.dfcfw.com/pdf/H2_AN202608301828737312_1.pdf","published_at":"2026-08-31","pdf_page":52,"printed_page":52,"section":"8 持有人信息；9 开放式基金份额变动"}}
+  ]
+}
