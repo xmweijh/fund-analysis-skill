@@ -51,10 +51,11 @@ const label=()=>state.channel==='flow'?'净申赎估算':'主力交易净额';
 const unit=()=>state.metric==='amount'?'亿元':'%';
 const field=()=>state.metric==='amount'?state.channel:state.channel==='flow'?'intensity':'market_intensity';
 const mainCoverage=Object.values(D.products).filter(p=>valid(p.daily[D.as_of]?.market_flow)).length;
+const mainWindows=Object.fromEntries([1,5,20].map(n=>[n,D.directions.filter(x=>valid(x.market_windows[String(n)].value)).length]));
 const current=x=>x.daily[D.as_of]||{};
 $('asof').textContent=D.as_of;
 $('date-range').textContent=`${D.dates[0]} — ${D.as_of} · ${D.dates.length}个市场观测日`;
-$('freshness').textContent=`数据截至 ${D.as_of}，覆盖 ${D.directions.length} 个方向、${Object.keys(D.products).length} 只代表ETF。主力交易仅取得 ${mainCoverage}/${Object.keys(D.products).length} 只ETF，暂无完整方向排名；国家队当日精确流向未知。`;
+$('freshness').textContent=`数据截至 ${D.as_of}，覆盖 ${D.directions.length} 个方向、${Object.keys(D.products).length} 只代表ETF。主力当日记录 ${mainCoverage}/${Object.keys(D.products).length} 只ETF；完整方向窗口：1日 ${mainWindows[1]}、5日 ${mainWindows[5]}、20日 ${mainWindows[20]}（共${D.directions.length}）。国家队当日精确流向未知。`;
 $('generated').textContent=`生成：${D.generated_at.slice(0,19).replace('T',' ')}（北京时间）`;
 for(const name of [...new Set(D.directions.map(x=>x.group))]){const o=document.createElement('option');o.textContent=name;$('group').append(o)}
 function stats(rows){const usable=rows.filter(x=>valid(getW(x).value)),total=usable.reduce((s,x)=>s+getW(x).value,0),positive=usable.filter(x=>getW(x).value>0).length,consistent=rows.filter(x=>valid(getW(x,5).value)&&valid(getW(x,20).value)&&getW(x,5).value>0&&getW(x,20).value>0).length;
@@ -87,8 +88,8 @@ for(const row of rows){h+=`<button class="heat-label" data-name="${esc(row.name)
 for(const b of $('heatmap').querySelectorAll('button')){b.onclick=()=>{state.selected=b.dataset.name;render()};if(b.dataset.info){b.onmouseenter=b.onfocus=()=>$('matrix-note').textContent=b.dataset.info;}}
 }
 function render(){const rows=visible();if(rows.length&&!rows.some(x=>x.name===state.selected))state.selected=rows[0].name;document.querySelectorAll('[data-channel]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.channel===state.channel)));document.querySelectorAll('[data-window]').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.window===state.window)));
-$('channel-note').textContent=state.channel==='flow'?'申赎：交易所份额差 × 每只ETF同日单位净值，再汇总。红色为净申购、绿色为净赎回；属于估算，可能含实物申赎。':`主力来源批量访问失败，目前仅取得 ${mainCoverage}/${Object.keys(D.products).length} 只ETF历史。无法给出完整方向排行；可在沪深300组成表查看已取得的510300记录。此口径是ETF二级市场大单交易，不代表国家队或成分股行业资金。`;stats(rows);rank(rows);detail(rows);heat(rows);}
-document.querySelectorAll('[data-channel]').forEach(b=>b.onclick=()=>{state.channel=b.dataset.channel;render()});document.querySelectorAll('[data-window]').forEach(b=>b.onclick=()=>{state.window=+b.dataset.window;render()});$('group').onchange=e=>{state.group=e.target.value;render()};$('metric').onchange=e=>{state.metric=e.target.value;render()};$('search').oninput=e=>{state.search=e.target.value.trim();render()};
+$('channel-note').textContent=state.channel==='flow'?'申赎：交易所份额差 × 每只ETF同日单位净值，再汇总。红色为净申购、绿色为净赎回；属于估算，可能含实物申赎。':`主力当日记录覆盖 ${mainCoverage}/${Object.keys(D.products).length} 只ETF；当前${state.window}日窗口完整方向 ${mainWindows[state.window]}/${D.directions.length}。${mainWindows[state.window]?'仅对完整样本输出排行。':'暂无完整方向排行，可在组成表查看已取得的单只ETF记录。'}当日备用快照不补为历史；ETF二级市场大单统计不代表国家队或成分股行业资金。`;stats(rows);rank(rows);detail(rows);heat(rows);}
+document.querySelectorAll('[data-channel]').forEach(b=>b.onclick=()=>{state.channel=b.dataset.channel;if(state.channel==='market_flow'&&!mainWindows[state.window]&&mainWindows[1])state.window=1;render()});document.querySelectorAll('[data-window]').forEach(b=>b.onclick=()=>{state.window=+b.dataset.window;render()});$('group').onchange=e=>{state.group=e.target.value;render()};$('metric').onchange=e=>{state.metric=e.target.value;render()};$('search').oninput=e=>{state.search=e.target.value.trim();render()};
 for(const name of ['flow','national','source'])$('tab-'+name).onclick=()=>{for(const n of ['flow','national','source']){$('tab-'+n).setAttribute('aria-selected',String(n===name));$('view-'+n).hidden=n!==name;}if(name==='national')national()};
 function national(){const codes=D.national.codes,series=Object.fromEntries(D.dates.map(d=>[d,sum(codes.map(c=>D.products[c]?.daily[d]?.flow))]));$('national-proxy').textContent=fmt(series[D.as_of],'亿元');chart($('national-trend'),series,D.dates,'历史相关ETF池每日净申赎估算');const saved={...state};state.channel='flow';state.window=5;$('national-table').innerHTML=productTable(codes);state=saved;}
 const bounds=D.national.quantity_bounds;

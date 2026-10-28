@@ -7,11 +7,32 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from scripts.capital_flow_data import PublicClient, build_direction, daily_estimate, national_quantity_bounds, parse_szse_xlsx, window_stats
+from scripts.capital_flow_data import PublicClient, build_direction, daily_estimate, fetch_market_flow, national_quantity_bounds, parse_market_flow, parse_szse_xlsx, window_stats
 from scripts.capital_flow_report import render
 
 
 class CapitalFlowTests(unittest.TestCase):
+    def test_market_snapshot_is_one_day_not_history(self):
+        doc={"rc":0,"data":{"code":"510300","klines":["2026-10-27,-860610576,507763565,352847008,149916288,-1010526864"]}}
+        rows=parse_market_flow(doc,"510300","2026-10-27")
+        self.assertEqual(list(rows),["2026-10-27"])
+        self.assertAlmostEqual(rows["2026-10-27"]["flow"],-8.60610576)
+        self.assertIsNone(rows["2026-10-27"]["ratio"])
+        self.assertEqual(parse_market_flow(doc,"510330","2026-10-27"),{})
+        self.assertEqual(parse_market_flow(doc,"510300","2026-10-26"),{})
+        self.assertEqual(parse_market_flow({**doc,"rc":100},"510300","2026-10-27"),{})
+
+    def test_failed_history_uses_snapshot_without_zero_filling(self):
+        class Client:
+            def __init__(self):self.calls=[]
+            def json(self,url,*args):
+                self.calls.append(url)
+                return None if len(self.calls)==1 else {"data":{"code":"510300","klines":["2026-10-27,100000000,0,0,0,0"]}}
+        c=Client();rows=fetch_market_flow(c,"510300","2026-10-27")
+        self.assertEqual(len(c.calls),2)
+        self.assertEqual(rows["2026-10-27"]["flow"],1)
+        self.assertIsNone(window_stats(rows,["2026-10-21","2026-10-22","2026-10-23","2026-10-26","2026-10-27"],5)["value"])
+
     def test_country_bound_is_quantity_only_and_requires_no_split_and_published_evidence(self):
         row={"huijin_investment_shares":60,"huijin_asset_shares":30,"current_total_shares":20,"split_change":0,
              "previous_source":{"published_at":"2026-03-31"},"current_source":{"published_at":"2026-08-31"}}
